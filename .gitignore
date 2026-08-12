@@ -30,3 +30,8 @@ Desktop.ini
 
 # ---- 内部启发式文档（规划、接口草案、探讨记录，不对外发布；见 dev/README.md）----
 dev/
+
+# ---- 内部 agent 会话文档（项目约定 / 状态 / 任务，不对外发布）----
+AGENTS.md
+STATE.md
+TODO.md
