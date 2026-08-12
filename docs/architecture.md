@@ -44,14 +44,14 @@ src-tauri/src/
         ├── mod.rs    # 公开命令与模块结构
         ├── commands.rs  # #[tauri::command] 定义（薄壳）
         ├── service.rs   # 业务逻辑
-        └── tests.rs     # 单元测试 / doctest（必须）
+        └── tests.rs     # 开发者测试（dt）（必须）
 ```
 
 规则：
 
 - **一个功能 = 一个 mod**，自包含命令、业务与测试；`lib.rs` 只做组装，不写业务。
 - 命令是**薄壳**：`#[tauri::command]` 函数只做参数解析与状态获取，业务逻辑放入 `service.rs`，以便脱离 Tauri 上下文独立测试。
-- **测试要求**：每个功能 mod 必须有测试（单元测试或 doctest，覆盖度不做硬性要求）。
+- **开发者测试（dt）**：每个功能 mod 必须随功能编写开发者测试（单元测试或 doctest，覆盖度不做硬性要求）。
 - 横切能力（错误、状态、日志）放 `core/`，功能间不互相依赖，需要复用走 `core/`。
 
 ## 4. 错误处理约定
@@ -82,6 +82,6 @@ src/
 
 ## 7. 测试策略
 
-- 后端：`cargo test`（位于 `src-tauri/`）。单元测试放在功能 mod 的 `tests.rs`；文档示例使用 doctest。
+- 后端：`cargo test`（位于 `src-tauri/`）。**开发者测试（dt）**：单元测试放在功能 mod 的 `tests.rs`，文档示例使用 doctest；每个功能 mod 必须要有。
 - 前端：vitest（`pnpm test`），配置见 `vite.config.ts`。
 - CI（GitHub Actions：fmt + clippy + cargo test + 前端 build + vitest）在首个功能签发后接入。

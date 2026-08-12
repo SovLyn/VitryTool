@@ -46,7 +46,7 @@ pnpm tauri build      # 桌面端打包
 
 ## 测试
 
-- 后端：`cargo test`（位于 `src-tauri/`，含单元测试 / doctest；覆盖度不做硬性要求，每个功能必须有测试）。
+- 后端：`cargo test`（位于 `src-tauri/`，每个功能必须有**开发者测试（dt）**——随功能编写的单元测试 / doctest；覆盖度不做硬性要求）。
 - 前端：`pnpm test`（vitest）。
 
 ## 文档

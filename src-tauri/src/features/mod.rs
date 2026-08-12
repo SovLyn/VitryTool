@@ -7,7 +7,7 @@
 //!    - `mod.rs` —— 模块结构声明与公开导出
 //!    - `commands.rs` —— `#[tauri::command]` 薄壳（只做参数解析与状态获取）
 //!    - `service.rs` —— 业务逻辑（脱离 Tauri 上下文可独立测试）
-//!    - `tests.rs` —— 单元测试 / doctest（**必须**，覆盖度不做硬性要求）
+//!    - `tests.rs` —— 开发者测试（dt）：单元测试 / doctest（**必须**，覆盖度不做硬性要求）
 //! 3. 在 `lib.rs` 的 `invoke_handler` 注册命令（按功能分组注释）。
 //! 4. 编写功能文档 `docs/features/<feature>.md`，并按 `docs/versioning.md` 递增版本。
 //!
