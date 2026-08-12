@@ -1,0 +1,32 @@
+# ---- 依赖 ----
+node_modules/
+
+# ---- 构建产物 ----
+dist/
+dist-ssr/
+
+# ---- Rust / Tauri 构建产物 ----
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# ---- 环境变量 ----
+.env
+.env.*
+!.env.example
+
+# ---- 编辑器 / IDE（个人环境，不对提交做要求）----
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---- 操作系统 ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- 工具 ----
+.codewhale/
+
+# ---- 内部启发式文档（规划、接口草案、探讨记录，不对外发布；见 dev/README.md）----
+dev/

@@ -1,0 +1,30 @@
+{
+  "name": "vitrytool",
+  "version": "0.0.1-alpha",
+  "description": "A handy tool for lan information sharing and other staff",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@solid-primitives/i18n": "^2.2.1",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "solid-js": "^1.9.3"
+  },
+  "devDependencies": {
+    "@solidjs/testing-library": "^0.8.10",
+    "@tauri-apps/cli": "^2",
+    "jsdom": "^30.0.1",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3",
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^4.1.10"
+  }
+}

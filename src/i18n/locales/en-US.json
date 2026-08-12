@@ -1,0 +1,13 @@
+{
+  "app": {
+    "title": "VitryTool",
+    "tagline": "LAN information sharing tool"
+  },
+  "demo": {
+    "greeting": "Welcome to VitryTool",
+    "hint": "Enter a name and click \"Greet\" to verify the front-backend bridge (scaffold demo, removed once the first feature lands).",
+    "enterName": "Enter a name...",
+    "greet": "Greet",
+    "result": "Greetings from Rust: {name}"
+  }
+}

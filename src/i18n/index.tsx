@@ -1,0 +1,71 @@
+//! 前端国际化基建。
+//!
+//! 开发阶段仅支持 `zh-CN` 与 `en-US`（见 docs/architecture.md 第 6 节）。
+//! 新增文案必须同时写入两份语言资源：`locales/zh-CN.json` 与 `locales/en-US.json`。
+//!
+//! 实现说明：`@solid-primitives/i18n` 2.x 为纯函数式 API，
+//! 本模块用其 `flatten()` 将嵌套字典拍平为「点分路径 key」，
+//! 并封装轻量插值（`{name}`），对外暴露 `t("a.b.c", { params })`。
+
+import { flatten } from "@solid-primitives/i18n";
+import { createContext, createSignal, useContext, type ParentProps } from "solid-js";
+import zhCN from "./locales/zh-CN.json";
+import enUS from "./locales/en-US.json";
+
+export type Locale = "zh-CN" | "en-US";
+
+/** 支持的语言列表（开发阶段固定两种）。 */
+export const locales: Locale[] = ["zh-CN", "en-US"];
+
+/** 拍平后的字典：key 为点分路径（如 `demo.greeting`）。 */
+const flatDictionaries = {
+  "zh-CN": flatten(zhCN),
+  "en-US": flatten(enUS),
+} as const;
+
+/** 字典结构类型（以 zh-CN 为基准）。 */
+export type Dictionary = typeof zhCN;
+
+/** 翻译函数签名：点分路径 + 可选插值参数。 */
+export type TFunction = (
+  key: string,
+  params?: Record<string, string | number | boolean>,
+) => string;
+
+export interface I18nContextValue {
+  /** 当前语言（响应式）。 */
+  locale: () => Locale;
+  /** 切换语言。 */
+  setLocale: (locale: Locale) => void;
+  /** 翻译函数：`t("a.b.c", { param })` 或 `t("a.b.c")`。 */
+  t: TFunction;
+}
+
+const I18nContext = createContext<I18nContextValue>();
+
+/** 轻量插值：将 `{name}` 替换为参数值；未提供的 key 保持原样。 */
+function format(template: string, params?: Record<string, string | number | boolean>): string {
+  if (!params) return template;
+  return template.replace(/\{(\w+)\}/g, (match, key: string) =>
+    key in params ? String(params[key]) : match,
+  );
+}
+
+export function I18nProvider(props: ParentProps) {
+  const [locale, setLocale] = createSignal<Locale>("zh-CN");
+
+  const t: TFunction = (key, params) => {
+    const dict = flatDictionaries[locale()] as Record<string, unknown>;
+    const value = dict[key];
+    return typeof value === "string" ? format(value, params) : String(value ?? "");
+  };
+
+  const value: I18nContextValue = { locale, setLocale, t };
+  return <I18nContext.Provider value={value}>{props.children}</I18nContext.Provider>;
+}
+
+export function useI18n(): I18nContextValue {
+  const ctx = useContext(I18nContext);
+  if (!ctx) throw new Error("useI18n 必须在 I18nProvider 内使用");
+  return ctx;
+}
