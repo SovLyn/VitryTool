@@ -25,6 +25,21 @@
     "invalid_max_entries": "上限需在 1 到 1024 之间",
     "storage_error": "历史数据读写失败"
   },
+  "quickPaste": {
+    "title": "快捷操作",
+    "hotkey": "快速粘贴快捷键",
+    "hotkeyDesc": "按住唤出剪贴板列表，滚轮选择，松开粘贴到剪贴板",
+    "recordHint": "按下组合键…（Esc 取消）",
+    "notSet": "未设置",
+    "clear": "清除快捷键",
+    "saved": "快捷键已保存",
+    "invalidNoModifier": "需包含至少一个 Ctrl / Alt / Win 修饰键",
+    "popupTitle": "快速粘贴",
+    "popupHint": "滚轮 / ↑↓ 选择 · 松开快捷键粘贴 · Esc 取消",
+    "invalid_hotkey": "快捷键无效：需包含至少一个 Ctrl / Alt / Win 修饰键",
+    "register_failed": "快捷键注册失败，可能已被其他程序占用",
+    "storage_error": "快捷键设置保存失败"
+  },
   "settings": {
     "title": "设置",
     "language": "语言",

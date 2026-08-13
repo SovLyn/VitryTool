@@ -1,18 +1,16 @@
 //! 剪贴板历史主界面。
 //!
 //! 职责（契约见 `docs/api/clipboard-history.md`）：
-//! - 挂载时自动 `startListening` + 注册 `onClipboardChange`（启动即监听，D10）；
-//! - 收到变化事件 → `captureClipboard` → 刷新列表；
-//! - 前台定时（5 分钟）发起 `cleanupOrphanImages` 兜底清理（D6）；
+//! - 挂载时加载历史列表，并监听 `clipboard-history://updated`（应用级监听捕捉成功后广播）刷新；
 //! - 列表展示 / 点击回写 / 单条删除 / 清空。
-//! 卸载时注销监听与定时器。设置（语言/主题/条数）在独立设置页 `Settings`。
+//!
+//! 剪贴板捕捉与定时清理已提升到应用级（`listener.ts`），与页面视图无关——
+//! 用户在设置页或主窗口隐藏期间复制的内容也会进入历史（0.2.1 修复）。
 
 import { createSignal, For, onCleanup, onMount } from "solid-js";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { onClipboardChange, startListening } from "tauri-plugin-clipboard-x-api";
+import { listen } from "@tauri-apps/api/event";
 import {
-  captureClipboard,
-  cleanupOrphanImages,
   clearClipboardHistory,
   deleteClipboardEntry,
   getClipboardHistory,
@@ -21,9 +19,7 @@ import {
   type ClipboardEntry,
 } from "../../api/clipboard-history";
 import { useI18n } from "../../i18n";
-
-/** 定时兜底清理间隔（固定，不暴露设置项，D6）。 */
-const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+import { CLIPBOARD_UPDATED_EVENT } from "./listener";
 
 type EntryKind = "text" | "image" | "html" | "rtf" | "files";
 
@@ -110,40 +106,17 @@ export function ClipboardHistory() {
     }
   }
 
-  /** 剪贴板变化事件：捕捉后刷新列表。 */
-  async function handleClipboardChanged() {
-    try {
-      await captureClipboard();
-      await refresh();
-    } catch (err) {
-      setError(getErrorCode(err) || String(err));
-    }
-  }
-
   onMount(() => {
     let unlisten: (() => void) | undefined;
-    let disposed = false;
 
     void refresh();
 
-    // 启动即监听（D10）；回写是否触发监听按项目经验不触发，实现后实测（契约 5.5）
-    void startListening()
-      .then(() => (disposed ? undefined : onClipboardChange(handleClipboardChanged)))
-      .then((fn) => {
-        unlisten = fn;
-      })
-      .catch((err) => setError(getErrorCode(err) || String(err)));
-
-    // 定时兜底清理：由前台发起（D6、ADR 0001）
-    const timer = setInterval(() => {
-      void cleanupOrphanImages().catch((err) => setError(getErrorCode(err) || String(err)));
-    }, SWEEP_INTERVAL_MS);
-
-    onCleanup(() => {
-      disposed = true;
-      unlisten?.();
-      clearInterval(timer);
+    // 应用级监听捕捉成功后广播 → 刷新列表
+    void listen(CLIPBOARD_UPDATED_EVENT, () => void refresh()).then((fn) => {
+      unlisten = fn;
     });
+
+    onCleanup(() => unlisten?.());
   });
 
   async function handleCopy(id: string) {

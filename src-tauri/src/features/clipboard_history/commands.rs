@@ -22,6 +22,11 @@ const ERR_CAPTURE: &str = "clipboard.capture_failed";
 const ERR_ENTRY_NOT_FOUND: &str = "clipboard.entry_not_found";
 const ERR_INVALID_MAX: &str = "clipboard.invalid_max_entries";
 
+/// 捕捉互斥锁：主窗口与小窗（快速粘贴 popup）可能同时发起 `capture_clipboard`，
+/// 锁内串行化「读 store → 去重置顶 → 写 store」，避免并发读到同一状态导致重复插入。
+/// 仅保护同步的 store 段（无 await），读剪贴板 IO 在锁外进行。
+static CAPTURE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn capture_err(err: impl std::fmt::Display) -> ApiError {
     let code = ERR_CAPTURE.to_string();
     log::error!("{code}: {err}");
@@ -155,10 +160,16 @@ pub async fn capture_clipboard(app: AppHandle) -> Result<Option<ClipboardEntry>,
         return Ok(None); // 空内容静默忽略（契约 5.2-2、D11）
     };
 
-    let store = StoreBackend::new(&app)?;
-    let max = store.load_max_entries()?;
-    let mut entries = store.load_entries()?;
-    let outcome: InsertOutcome = dedup_promote_and_evict(&mut entries, incoming, max);
+    // 串行化 store 段（读→去重置顶→写），防并发捕捉重复插入（见 CAPTURE_LOCK 注释）
+    let (outcome, entries) = {
+        let _guard = CAPTURE_LOCK.lock().unwrap();
+        let store = StoreBackend::new(&app)?;
+        let max = store.load_max_entries()?;
+        let mut entries = store.load_entries()?;
+        let outcome: InsertOutcome = dedup_promote_and_evict(&mut entries, incoming, max);
+        store.save_entries(&entries)?;
+        (outcome, entries)
+    };
     if outcome.is_new {
         log::info!(
             "capture_clipboard: new entry id={} evicted={} total={}",
@@ -189,7 +200,6 @@ pub async fn capture_clipboard(app: AppHandle) -> Result<Option<ClipboardEntry>,
         }
     }
 
-    store.save_entries(&entries)?;
     Ok(Some(outcome.entry))
 }
 

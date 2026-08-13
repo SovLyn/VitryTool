@@ -5,3 +5,4 @@
 pub mod error;
 pub mod log;
 pub mod state;
+pub mod tray;

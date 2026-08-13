@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick-paste",
+  "description": "Capability for the quick paste popup window",
+  "windows": ["quick-paste"],
+  "permissions": ["core:default"]
+}

@@ -20,15 +20,16 @@
 ```
 src-tauri/src/features/clipboard_history/
 ├── mod.rs       # 模块声明与导出
-├── commands.rs  # #[tauri::command] 薄壳（8 个命令）
+├── commands.rs  # #[tauri::command] 薄壳（8 个命令，capture 带互斥锁）
 ├── service.rs   # 纯逻辑：去重置顶 / 即时淘汰 / 孤儿计算（无 IO，可独立测试）
 ├── store.rs     # 持久化抽象（HistoryStore）+ tauri-plugin-store 实现
 └── tests.rs     # 开发者测试（dt）
 
-src/features/clipboard-history/ClipboardHistory.tsx   # 主界面（列表/回写/删除/清空）
-src/features/settings/Settings.tsx                    # 设置页（语言/主题/条数）
-src/api/clipboard-history.ts                          # invoke 封装（前端唯一入口）
-src/theme.tsx                                         # 主题系统（亮/暗/跟随系统）
+src/features/clipboard-history/listener.ts        # 应用级监听（App 挂载启动，捕捉 + 广播 updated 事件）
+src/features/clipboard-history/ClipboardHistory.tsx # 主界面（列表/回写/删除/清空，事件驱动刷新）
+src/features/settings/Settings.tsx                # 设置页（语言/主题/条数）
+src/api/clipboard-history.ts                      # invoke 封装（前端唯一入口）
+src/theme.tsx                                     # 主题系统（亮/暗/跟随系统）
 ```
 
 前端导航：左侧标签栏（功能在上、设置固定在底部，见 `src/App.tsx`），玻璃材质为贯穿全局的视觉语言（`src/App.css` 的语义色变量 + backdrop-filter）。
@@ -41,16 +42,20 @@ src/theme.tsx                                         # 主题系统（亮/暗/�
 系统剪贴板变化
   → 插件 Rust 监听线程（startListening）
   → emit "plugin:clipboard-x://clipboard_changed"（仅到 WebView）
-  → 前端 onClipboardChange
-  → invoke captureClipboard
-  → 后端：读各格式（逐格式容错）→ readImage 落盘 hash.png →
-      内容指纹去重置顶 → 超限即时淘汰（删最旧条目+图片）→ store 写回
-  → 前端刷新列表
+  → 应用级监听（listener.ts，App 挂载时启动，不随页面切换停止）
+  → invoke captureClipboard（后端持互斥锁，读各格式 → 落盘 hash.png →
+      内容指纹去重置顶 → 超限即时淘汰 → store 写回）
+  → 前端广播 "clipboard-history://updated"
+  → 历史页 / 快速粘贴小屏（激活时）据此刷新列表
 
-定时兜底（前台发起，5 分钟）：
-  前端 setInterval → invoke cleanupOrphanImages
+定时兜底（前台发起，5 分钟，应用级）：
+  setInterval → invoke cleanupOrphanImages
   → 后端：扫描图片目录 vs 存活条目引用 → 删除孤儿图片
 ```
+
+监听不再绑定在 `ClipboardHistory` 组件生命周期（0.2.1 起）：用户在设置页或
+主窗口隐藏（托盘常驻）期间复制的内容也会被捕捉。主窗口 WebView 隐藏后仍存活，
+监听与定时器继续工作（ADR 0001 推论成立）。
 
 ## 安全与边界
 

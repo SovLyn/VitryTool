@@ -8,7 +8,14 @@
 //! 并封装轻量插值（`{name}`），对外暴露 `t("a.b.c", { params })`。
 
 import { flatten } from "@solid-primitives/i18n";
-import { createContext, createSignal, useContext, type ParentProps } from "solid-js";
+import {
+  createContext,
+  createSignal,
+  onCleanup,
+  onMount,
+  useContext,
+  type ParentProps,
+} from "solid-js";
 import zhCN from "./locales/zh-CN.json";
 import enUS from "./locales/en-US.json";
 
@@ -64,6 +71,18 @@ function format(template: string, params?: Record<string, string | number | bool
 
 export function I18nProvider(props: ParentProps) {
   const [locale, setLocaleSignal] = createSignal<Locale>(loadLocale());
+
+  // 跨窗口语言同步：主窗口与小窗（popup）各自持有独立的 I18nProvider 实例，
+  // 任一窗口切换语言都会写入 localStorage，同源其他窗口经 storage 事件跟随（0.2.1 修复）。
+  onMount(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === LOCALE_STORAGE_KEY && (e.newValue === "zh-CN" || e.newValue === "en-US")) {
+        setLocaleSignal(e.newValue);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    onCleanup(() => window.removeEventListener("storage", onStorage));
+  });
 
   const t: TFunction = (key, params) => {
     const dict = flatDictionaries[locale()] as Record<string, unknown>;

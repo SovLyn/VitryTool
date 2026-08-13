@@ -2,7 +2,7 @@
 
 局域网信息共享工具（LAN information sharing）—— 用于在局域网内共享信息与文件的开源桌面应用。
 
-> **当前状态**：`0.1.2`，首个功能（剪贴板历史）已落地，含日志系统、主题与设置页。
+> **当前状态**：`0.2.2`，剪贴板历史 + 快速粘贴（全局快捷键小屏）已落地，含日志系统、主题、设置页、托盘与窗口状态记忆。
 
 ## 项目简介
 
@@ -12,7 +12,9 @@ VitryTool 的目标是提供轻量、本地的局域网信息共享能力，不�
 
 ## 功能规划
 
-- **已落地**：剪贴板历史（clipboard-history）——捕捉剪贴板变化并保存为可浏览、可回写的历史记录，见 [`docs/features/clipboard-history.md`](docs/features/clipboard-history.md) 与接口契约 [`docs/api/clipboard-history.md`](docs/api/clipboard-history.md)。
+- **已落地**：
+  - 剪贴板历史（clipboard-history）——捕捉剪贴板变化并保存为可浏览、可回写的历史记录，见 [`docs/features/clipboard-history.md`](docs/features/clipboard-history.md) 与接口契约 [`docs/api/clipboard-history.md`](docs/api/clipboard-history.md)。
+  - 快速粘贴（quick-paste）——全局快捷键 + 置顶小屏：按住唤出剪贴板历史（实时同步最新复制），滚轮选择，松开回写；含系统托盘与窗口状态记忆，见 [`docs/features/quick-paste.md`](docs/features/quick-paste.md) 与接口契约 [`docs/api/quick-paste.md`](docs/api/quick-paste.md)。
 - **规划中**：局域网信息共享（首个功能原规划），接口契约文档先行，见 `docs/api/`。
 - 功能进度与版本变化记录在 `CHANGELOG.md`。
 
@@ -68,10 +70,12 @@ pnpm tauri build      # 桌面端打包
 - **剪贴板历史性能**：历史列表通过 tauri-plugin-store 整体序列化持久化，接近上限（1024 条富文本）时读写存在性能开销，后续版本优化。
 - **连续复制**：Windows 剪贴板监视存在固有延迟，极速连续复制可能丢失中间内容。
 - 剪贴板历史**明文存储**敏感内容（密码等），提供单条删除与清空全部；暂停监听功能规划中。
+- 托盘菜单文案暂为中文（未接入 i18n）。
+- 快速粘贴小屏为透明置顶窗口：Windows 下 backdrop-filter 仅作用于窗口内内容（无法模糊桌面），系统阴影不可用。
 
 ## 版本管理
 
-当前版本 `0.1.2`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
+当前版本 `0.2.2`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
 
 ## 隐私
 

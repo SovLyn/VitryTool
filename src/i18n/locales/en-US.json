@@ -25,6 +25,21 @@
     "invalid_max_entries": "Max entries must be between 1 and 1024",
     "storage_error": "Failed to read or write history data"
   },
+  "quickPaste": {
+    "title": "Quick Actions",
+    "hotkey": "Quick Paste Shortcut",
+    "hotkeyDesc": "Hold to open clipboard list, scroll to choose, release to paste to clipboard",
+    "recordHint": "Press keys… (Esc to cancel)",
+    "notSet": "Not set",
+    "clear": "Clear shortcut",
+    "saved": "Shortcut saved",
+    "invalidNoModifier": "Needs at least one of Ctrl / Alt / Win",
+    "popupTitle": "Quick Paste",
+    "popupHint": "Wheel / ↑↓ to choose · Release to paste · Esc to cancel",
+    "invalid_hotkey": "Invalid shortcut: needs at least one of Ctrl / Alt / Win",
+    "register_failed": "Failed to register shortcut (may be taken by another app)",
+    "storage_error": "Failed to save shortcut settings"
+  },
   "settings": {
     "title": "Settings",
     "language": "Language",

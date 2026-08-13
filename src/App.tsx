@@ -1,6 +1,7 @@
 import "./App.css";
-import { createSignal, For } from "solid-js";
+import { createSignal, For, onMount } from "solid-js";
 import { ClipboardHistory } from "./features/clipboard-history/ClipboardHistory";
+import { startClipboardCapture } from "./features/clipboard-history/listener";
 import { Settings } from "./features/settings/Settings";
 import { useI18n } from "./i18n";
 
@@ -20,6 +21,9 @@ const NAV_ITEMS: { view: View; labelKey: string }[] = [
 function App() {
   const { t } = useI18n();
   const [view, setView] = createSignal<View>("history");
+
+  // 应用级剪贴板捕捉：与页面视图无关，启动即监听（设置页 / 主窗口隐藏期间也持续）
+  onMount(() => startClipboardCapture());
 
   return (
     <div class="app-shell">

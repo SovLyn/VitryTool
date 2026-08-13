@@ -40,6 +40,14 @@ function applyTheme(resolved: ResolvedTheme) {
 // 模块加载即应用初始主题，避免首帧闪烁。
 applyTheme(resolve(loadTheme()));
 
+// 跨窗口主题同步：主窗口与小窗（popup）共享 localStorage，任一窗口切换主题后
+// 同源其他窗口经 storage 事件跟随（storage 事件不在写入窗口自身触发，互不干扰）。
+window.addEventListener("storage", (e) => {
+  if (e.key === STORAGE_KEY && e.newValue && isTheme(e.newValue)) {
+    applyTheme(resolve(e.newValue as Theme));
+  }
+});
+
 export interface ThemeContextValue {
   /** 用户选择的主题（light / dark / system）。 */
   theme: () => Theme;

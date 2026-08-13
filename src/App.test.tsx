@@ -23,6 +23,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
   convertFileSrc: vi.fn((p: string) => p),
 }));
+// 应用级监听（listener.ts）广播与历史页监听刷新事件
+vi.mock("@tauri-apps/api/event", () => ({
+  emit: vi.fn(async () => undefined),
+  listen: vi.fn(async () => () => undefined),
+}));
 // 主题模块含 matchMedia/localStorage 副作用，测试中 mock 掉 useTheme 供设置页使用
 vi.mock("./theme", () => ({
   useTheme: () => ({

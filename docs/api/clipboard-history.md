@@ -113,12 +113,19 @@ type GetMaxEntriesResp = number;
 系统剪贴板变化
   → 插件 Rust 监听线程（startListening）
   → emit "plugin:clipboard-x://clipboard_changed"（仅到 WebView）
-  → 前端 onClipboardChange 收到
+  → 应用级监听（src/features/clipboard-history/listener.ts，App 挂载时启动）
   → invoke captureClipboard
   → 后端 service：读格式 → 落盘图片 → 去重置顶 → 即时淘汰 → 写回 store
+  → 前端广播 "clipboard-history://updated"（主窗口历史页 / 快速粘贴小屏据此刷新）
 ```
 
-监听由前端在应用挂载时发起：`startListening()` + 注册 `onClipboardChange`；窗口关闭即退出（进程终止，监听随之结束）。**后端无自有时钟，全部业务动作由前端发起**（ADR 0001）。
+监听由**应用级**模块在 `App` 挂载时启动（0.2.1 起），不再绑定在 `ClipboardHistory` 组件生命周期：
+用户切换到设置页或主窗口隐藏（托盘常驻）期间，剪贴板变化仍被捕捉并写入历史。
+**后端无自有时钟，全部业务动作由前端发起**（ADR 0001）。
+
+`captureClipboard` 内部对「读 store → 去重置顶 → 写 store」持互斥锁（`CAPTURE_LOCK`）：
+主窗口与小屏（快速粘贴 popup）可能并发发起捕捉，锁内串行化避免同一内容重复插入
+（后到者按内容指纹去重置顶，无害）。
 
 ### 5.2 captureClipboard
 

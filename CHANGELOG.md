@@ -2,6 +2,46 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
+## [0.2.2] - 2026-08-13
+
+### 修复
+
+- **小窗条目类型标记贴右**：小窗列表中「文本 / 图片 / 文件」等类型标记固定在最右端——图片条目此前为裸 `<img>`（无 `flex: 1` 撑开），类型标记会紧跟图片；现图片统一包裹在 preview 容器中，并给类型标记加 `margin-left: auto` 兜底。
+
+## [0.2.1] - 2026-08-13
+
+### 修复
+
+- **快速粘贴小窗数据不同步**：
+  - 剪贴板监听提升为应用级（`listener.ts`，App 挂载时启动），不再绑定在历史页组件生命周期——切到设置页或主窗口隐藏期间复制的内容也会进入历史；
+  - 小窗 show 时先补一次 `captureClipboard`（兜底主窗口未捕捉到的最新复制）；
+  - 小窗激活期间监听 `clipboard-history://updated` 实时刷新（保持当前选中条目）；
+  - 后端 `captureClipboard` 加互斥锁，主窗口与小窗并发捕捉同一内容不再重复插入。
+- **小窗语言不随主窗口切换（i18n）**：i18n 增加跨窗口 `storage` 事件同步，小窗（独立 I18nProvider 实例）跟随主窗口语言切换；主题同理（`theme.tsx` 模块级 storage 监听）。
+
+### 变更
+
+- `ClipboardHistory` 组件改为事件驱动刷新（监听 `clipboard-history://updated`），不再自持监听与定时器。
+- 契约文档同步：`docs/api/clipboard-history.md`（数据流与应用级监听）、`docs/api/quick-paste.md`（5.3 小屏数据实时同步）。
+
+## [0.2.0] - 2026-08-13
+
+### 新增
+
+- **快速粘贴（quick-paste）**，契约见 `docs/api/quick-paste.md`：
+  - 快捷键录制组件（HotkeyRecorder）：设置页录制全局快捷键（标准格式持久化，启动自动注册；要求至少一个非 Shift 修饰键，防止拦截常规输入）。
+  - 按住快捷键唤出**置顶小屏**（跟随鼠标、透明无边框、跳过任务栏、初始隐藏），展示剪贴板历史列表。
+  - 滚轮 / ↑↓ 切换选中项（边界 clamp 不循环）；**松开快捷键**将选中项按原始格式回写剪贴板并关闭小屏；小屏内 Esc 取消。
+  - 首次按下时 WebView 未加载完的竞态握手（quickPasteReady 补发 show）；前端异常时后端 3 秒兜底隐藏；会话 id 防过期回调误关新会话。
+- **系统托盘**：关闭主窗口改为隐藏（进程常驻），托盘左键单击唤出，菜单「显示主窗口」「退出」；退出前显式保存窗口状态。
+- **窗口状态记忆**（tauri-plugin-window-state）：主窗口位置 / 大小 / 最大化状态重启后恢复；快速粘贴小屏不参与记忆（每次跟随鼠标）。
+
+### 变更
+
+- 依赖新增：`tauri-plugin-global-shortcut`、`tauri-plugin-window-state`（Rust）；`tauri` 启用 `tray-icon` feature。
+- `tauri.conf.json` 新增 `quick-paste` 窗口（透明 / 无边框 / 置顶 / 跳过任务栏）；capabilities 新增 `quick-paste`；Vite 双入口（`index.html` + `popup.html`）。
+- 托盘菜单文案后端硬编码中文（暂不接入 i18n，见契约未决问题）。
+
 ## [0.1.2] - 2026-08-13
 
 ### 新增

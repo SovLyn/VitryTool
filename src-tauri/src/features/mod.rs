@@ -13,3 +13,6 @@
 
 /// 剪贴板历史（首个功能）。
 pub mod clipboard_history;
+
+/// 快速粘贴（全局快捷键 + 置顶小屏）。
+pub mod quick_paste;

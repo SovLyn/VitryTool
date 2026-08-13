@@ -410,6 +410,53 @@ button:active {
   border-color: var(--accent);
 }
 
+/* ---- 快捷键录制（HotkeyRecorder） ---- */
+.hotkey-recorder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.hotkey-input {
+  min-width: 150px;
+  padding: 7px 14px;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+  color: var(--text);
+}
+
+.hotkey-input.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.18);
+}
+
+.hotkey-clear {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  padding: 5px 10px;
+}
+
+.hotkey-clear:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.settings-error {
+  font-size: 0.78rem;
+  color: #ff453a;
+  width: 100%;
+  text-align: right;
+}
+
 /* ---- 可访问性降级 ---- */
 @media (prefers-reduced-motion: reduce) {
   *,

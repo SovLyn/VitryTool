@@ -1,0 +1,154 @@
+/* ==========================================================================
+   快速粘贴小屏（Quick Paste Popup）
+   - 独立窗口（透明、无边框、置顶），复用 App.css 的主题变量与玻璃设计语言
+   - 卡片：高不透明度表面（透明窗口下 backdrop-filter 仅作用于窗口内内容，
+     跨应用模糊不可用，故比主窗口表面更实以保证可读性）
+   - 选中行使用 accent 高亮；进入动画为 materialize（scale + fade）
+   ========================================================================== */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent; /* 透明窗口 */
+  overflow: hidden;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  color: var(--text);
+}
+
+#root {
+  height: 100%;
+}
+
+.qp-overlay {
+  height: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+/* 卡片：materialize（apple-design §12）——表面到达而非纯透明度淡入 */
+.qp-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  opacity: 0;
+  transform: scale(0.97);
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+.qp-card.enter {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.qp-header {
+  padding: 14px 16px 10px;
+}
+
+.qp-title {
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.qp-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 8px;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qp-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  cursor: default;
+  transition: background-color 100ms ease-out, color 100ms ease-out;
+}
+
+.qp-item img {
+  max-height: 40px;
+  max-width: 56px;
+  border-radius: 6px;
+  display: block;
+  object-fit: cover;
+}
+
+.qp-item-preview {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9rem;
+}
+
+.qp-item-kind {
+  flex-shrink: 0;
+  margin-left: auto; /* 类型标记始终贴最右端（图片条目无 flex 撑开时也生效） */
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+
+.qp-item.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.qp-item.active .qp-item-kind {
+  opacity: 0.85;
+}
+
+.qp-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 56px 16px;
+  font-size: 0.9rem;
+}
+
+.qp-footer {
+  padding: 8px 16px 12px;
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--hairline);
+  letter-spacing: 0.01em;
+}
+
+/* 复用主界面的错误提示 */
+.message {
+  margin: 8px 16px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+
+.message.error {
+  background: rgba(255, 69, 58, 0.12);
+  color: #ff453a;
+  border: 1px solid rgba(255, 69, 58, 0.25);
+}
+
+/* 可访问性降级：与主界面一致 */
+@media (prefers-reduced-motion: reduce) {
+  .qp-card {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+}
