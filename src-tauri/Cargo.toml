@@ -1,6 +1,6 @@
 [package]
 name = "vitrytool"
-version = "0.1.0"
+version = "0.1.1"
 description = "A handy tool for lan information sharing and other staff"
 authors = ["SovLyn"]
 edition = "2021"
@@ -26,4 +26,6 @@ tauri-plugin-clipboard-x = "2.0.2"
 tauri-plugin-store = "2.4.4"
 chrono = "0.4.45"
 uuid = { version = "1.24.0", features = ["v4"] }
+log = "0.4.33"
+tauri-plugin-log = "2.9.0"
 

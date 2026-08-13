@@ -140,7 +140,7 @@ type GetMaxEntriesResp = number;
 - 图片本体由插件保存于 `app_data_dir/tauri-plugin-clipboard-x/images`（插件默认路径，`readImage` 不传 `save_path`），文件名为内容哈希 `.png`。
 - **前端显示**：通过 `convertFileSrc(path)` 生成 asset URL，依赖 `tauri.conf.json` 的 `security.assetProtocol`（enable=true，scope 覆盖 `$APPDATA/tauri-plugin-clipboard-x/images/**`）；`<img>` 加载失败（如协议未命中）时前端回退为占位文案，不显示裂图。
 - **即时淘汰**（见 5.2-5）：超限同步删最旧条目及其图片。
-- **定时兜底清理**：前端 `setInterval`（固定 5 分钟，不暴露设置项）→ invoke `cleanupOrphanImages`：扫描图片目录全部 `.png`，收集存活条目 `image.path` 集合，删除差集文件，返回 `removed`。用于弥合即时淘汰失败（文件占用、异常中断等）造成的不一致。
+- **定时兜底清理**：前端 `setInterval`（固定 5 分钟，不暴露设置项）→ invoke `cleanupOrphanImages`：扫描图片目录全部 `.png`，收集存活条目 `image.path` 集合，删除差集文件，返回 `removed`。路径比较基于 `Path::components`（Windows 上 `/` 与 `\` 均视为分隔符），对表示差异不敏感。用于弥合即时淘汰失败（文件占用、异常中断等）造成的不一致。
 - **图片缺失**：`getClipboardHistory` 返回时对每条 `image` 检查文件存在性，生成派生标记 `missing`（不持久化）；条目保留不删除，前端显示占位。
 
 ### 5.5 writeClipboardEntry（回写）

@@ -2,6 +2,22 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
+## [0.1.1] - 2026-08-13
+
+### 新增
+
+- **日志系统**：基于 `log` + `tauri-plugin-log`（`core/log.rs`）。开发构建输出 Trace 级到终端（系统 crate 压到 Info）；发布构建保存 Error 级到应用日志目录文件（5 MiB 轮转、保留最近一份）。开发构建同时将 Trace 落盘（便于排查）。
+- 剪贴板历史各命令补齐日志（元数据为主，遵循隐私约束，不记录剪贴板明文）。
+
+### 修复
+
+- **孤儿清理误删图片**：`image_dir` 用单个含 `/` 的相对串 `join`，在 Windows 上保留正斜杠，与插件落盘路径（`\`）不一致，导致 `orphan_files` 字符串比较失败、全部图片被误判为孤儿删除。现改为分开 `join`，且路径比较改用 `Path::components`（`/` 与 `\` 视为同一分隔符），并加回归测试。
+- **去重丢弃的已落盘图片成为孤儿**：`read_image` 提前落盘，但去重命中旧条目时新图可能不被采纳；现于 `capture_clipboard` 内清理本次落盘且未被任何条目引用的图片。
+
+### 变更
+
+- `docs/architecture.md` 新增「日志约定」章节。
+
 ## [0.1.0] - 2026-08-13
 
 ### 新增

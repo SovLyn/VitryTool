@@ -59,7 +59,7 @@ src/api/clipboard-history.ts                          # invoke 封装（前端�
 
 ## 测试要点
 
-- 后端 dt（`cargo test`）：内容指纹匹配各分支、去重置顶（id 保持/时间刷新/不淘汰）、即时淘汰（最旧优先/图片路径收集）、截断（setMaxEntries 语义）、孤儿差集、MemoryStore 流程组合。
+- 后端 dt（`cargo test`）：内容指纹匹配各分支、去重置顶（id 保持/时间刷新/不淘汰）、即时淘汰（最旧优先/图片路径收集）、截断（setMaxEntries 语义）、孤儿差集（含 Windows 分隔符 `/` 与 `\` 表示不一致的回归测试）、MemoryStore 流程组合。
 - 前端 vitest：invoke 封装（命令名与参数）、错误码提取、App 渲染（空状态/语言切换，宿主能力 mock）。
 - 需要人工实测（真实剪贴板）：回写是否触发监听、快速连续复制是否丢失中间内容、图片去重置顶的 UI 表现。
 - 图片预览依赖 asset 协议（`security.assetProtocol` 已配置且 scope 覆盖图片目录），加载失败回退占位——实机验证时留意。

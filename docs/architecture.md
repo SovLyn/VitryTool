@@ -85,3 +85,9 @@ src/
 - 后端：`cargo test`（位于 `src-tauri/`）。**开发者测试（dt）**：单元测试放在功能 mod 的 `tests.rs`，文档示例使用 doctest；每个功能 mod 必须要有。
 - 前端：vitest（`pnpm test`），配置见 `vite.config.ts`。
 - CI（GitHub Actions：fmt + clippy + cargo test + 前端 build + vitest）在首个功能签发后接入。
+
+## 8. 日志约定
+
+- 基于 `log` 门面 + `tauri-plugin-log`（官方后端），初始化在 `core/log.rs`；业务代码直接用 `log::trace! / debug! / info! / warn! / error!`，无需关心输出目标。
+- 级别与目标：**开发（debug_assertions）** `Trace` 级输出终端，系统 crate 压到 `Info`；**发布（release）** `Error` 级写入应用日志目录文件（5 MiB 大小轮转，保留最近一份）。
+- **隐私约束**：日志只记录元数据（id / 类型 / 长度 / 路径 / 操作结果），绝不记录剪贴板明文等敏感内容（见 `core/log.rs`）。

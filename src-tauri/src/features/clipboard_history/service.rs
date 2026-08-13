@@ -3,8 +3,7 @@
 //! 领域术语与规则见 `dev/CONTEXT.md`；行为契约见 `docs/api/clipboard-history.md` 第 5 节。
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 条目上限（允许的最大值）。
 pub const MAX_ENTRIES_LIMIT: usize = 1024;
@@ -166,17 +165,21 @@ pub fn evict_over_limit(entries: &mut Vec<ClipboardEntry>, max_entries: usize) -
 }
 
 /// 计算孤儿图片：目录中存在但没有任何存活条目引用的文件（契约 5.4-②）。
+///
+/// 路径比较基于 [`Path::components`]（在 Windows 上 `/` 与 `\` 均被识别为路径分隔符），
+/// 避免条目路径（插件用 `\` 拼接）与扫描目录（`PathBuf::join` 可能保留 `/`）
+/// 因分隔符表示不一致而被误判为孤儿——该问题曾导致全部图片被误删。
 pub fn orphan_files(entries: &[ClipboardEntry], dir_files: &[PathBuf]) -> Vec<PathBuf> {
-    let referenced: HashSet<&str> = entries
+    let referenced: Vec<Vec<_>> = entries
         .iter()
         .filter_map(|e| e.image.as_ref())
-        .map(|img| img.path.as_str())
+        .map(|img| Path::new(&img.path).components().collect())
         .collect();
     dir_files
         .iter()
         .filter(|file| {
-            let name = file.to_string_lossy();
-            !referenced.contains(name.as_ref())
+            let comps = file.components().collect::<Vec<_>>();
+            !referenced.contains(&comps)
         })
         .cloned()
         .collect()
@@ -328,6 +331,22 @@ mod unit {
             orphans,
             vec![PathBuf::from("/img/orphan1.png"), PathBuf::from("/img/orphan2.png")]
         );
+    }
+
+    /// 回归：条目路径与扫描目录分隔符表示不一致（Windows 上 `/` vs `\`）时不得误判孤儿。
+    /// 曾导致全部图片被当作孤儿删除（scanned=2 referenced=2 removed=2）。
+    #[cfg(windows)]
+    #[test]
+    fn orphan_files_separator_insensitive() {
+        // 条目用反斜杠、扫描目录用正斜杠，同一文件
+        let entries = vec![entry("a", None, Some("/img\\keep.png"))];
+        let dir_files = vec![PathBuf::from("/img/keep.png")];
+        assert!(orphan_files(&entries, &dir_files).is_empty());
+
+        // 反向表示
+        let entries2 = vec![entry("b", None, Some("/img/keep.png"))];
+        let dir_files2 = vec![PathBuf::from("/img\\keep.png")];
+        assert!(orphan_files(&entries2, &dir_files2).is_empty());
     }
 
     #[test]

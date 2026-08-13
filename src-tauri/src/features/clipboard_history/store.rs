@@ -13,6 +13,7 @@ use tauri_plugin_store::{Store, StoreExt};
 const ERR_STORAGE: &str = "clipboard.storage_error";
 
 fn storage_err(err: impl std::fmt::Display) -> ApiError {
+    log::error!("{ERR_STORAGE}: {err}");
     ApiError::new(ERR_STORAGE, format!("history store error: {err}"))
 }
 
