@@ -23,6 +23,14 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
   convertFileSrc: vi.fn((p: string) => p),
 }));
+// 主题模块含 matchMedia/localStorage 副作用，测试中 mock 掉 useTheme 供设置页使用
+vi.mock("./theme", () => ({
+  useTheme: () => ({
+    theme: () => "system" as const,
+    resolved: () => "light" as const,
+    setTheme: vi.fn(),
+  }),
+}));
 
 function renderApp() {
   return render(() => (
@@ -33,15 +41,14 @@ function renderApp() {
 }
 
 describe("App", () => {
-  it("渲染剪贴板历史标题（zh-CN 默认）", () => {
-    const { getByText } = renderApp();
-    expect(getByText("剪贴板历史")).toBeTruthy();
+  it("渲染剪贴板历史（侧栏导航 + 顶栏标题，zh-CN 默认）", () => {
+    const { getAllByText } = renderApp();
+    expect(getAllByText("剪贴板历史").length).toBeGreaterThan(0);
   });
 
-  it("渲染语言切换按钮", () => {
+  it("侧栏底部有「设置」入口", () => {
     const { getByText } = renderApp();
-    expect(getByText("zh-CN")).toBeTruthy();
-    expect(getByText("en-US")).toBeTruthy();
+    expect(getByText("设置")).toBeTruthy();
   });
 
   it("空历史时显示引导文案", () => {

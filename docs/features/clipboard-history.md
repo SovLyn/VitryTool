@@ -25,9 +25,13 @@ src-tauri/src/features/clipboard_history/
 ├── store.rs     # 持久化抽象（HistoryStore）+ tauri-plugin-store 实现
 └── tests.rs     # 开发者测试（dt）
 
-src/features/clipboard-history/ClipboardHistory.tsx   # 主界面
+src/features/clipboard-history/ClipboardHistory.tsx   # 主界面（列表/回写/删除/清空）
+src/features/settings/Settings.tsx                    # 设置页（语言/主题/条数）
 src/api/clipboard-history.ts                          # invoke 封装（前端唯一入口）
+src/theme.tsx                                         # 主题系统（亮/暗/跟随系统）
 ```
+
+前端导航：左侧标签栏（功能在上、设置固定在底部，见 `src/App.tsx`），玻璃材质为贯穿全局的视觉语言（`src/App.css` 的语义色变量 + backdrop-filter）。
 
 关键依赖：`tauri-plugin-clipboard-x`（监听 + 读写 + 图片落盘）、`tauri-plugin-store`（历史与设置持久化）、`tauri-plugin-clipboard-x-api`（前端事件绑定）。
 

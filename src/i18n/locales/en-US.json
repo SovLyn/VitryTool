@@ -8,16 +8,11 @@
     "empty": "No clipboard entries yet. Copy something and it will show up here.",
     "clear": "Clear All",
     "clearConfirm": "Clear all clipboard history?",
-    "settings": "Settings",
-    "maxEntries": "Max entries",
-    "save": "Save",
-    "cancel": "Cancel",
     "delete": "Delete",
     "copied": "Written back to clipboard",
     "missingImage": "Image file missing",
     "imageLoadFailed": "Failed to load image",
     "image": "Image",
-    "maxHint": "Keeps up to {count} entries",
     "kind": {
       "text": "Text",
       "image": "Image",
@@ -29,5 +24,18 @@
     "entry_not_found": "Entry not found",
     "invalid_max_entries": "Max entries must be between 1 and 1024",
     "storage_error": "Failed to read or write history data"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "appearance": "Appearance",
+    "theme": "Theme",
+    "themeDesc": "Light, dark, or follow system",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System",
+    "clipboard": "Clipboard",
+    "maxEntries": "Max entries",
+    "maxEntriesDesc": "History retention limit (1–1024)"
   }
 }

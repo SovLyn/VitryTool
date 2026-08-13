@@ -4,8 +4,8 @@
 //! - 挂载时自动 `startListening` + 注册 `onClipboardChange`（启动即监听，D10）；
 //! - 收到变化事件 → `captureClipboard` → 刷新列表；
 //! - 前台定时（5 分钟）发起 `cleanupOrphanImages` 兜底清理（D6）；
-//! - 列表展示 / 点击回写 / 单条删除 / 清空 / 设置 n。
-//! 卸载时注销监听与定时器。
+//! - 列表展示 / 点击回写 / 单条删除 / 清空。
+//! 卸载时注销监听与定时器。设置（语言/主题/条数）在独立设置页 `Settings`。
 
 import { createSignal, For, onCleanup, onMount } from "solid-js";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -17,8 +17,6 @@ import {
   deleteClipboardEntry,
   getClipboardHistory,
   getErrorCode,
-  getMaxEntries,
-  setMaxEntries,
   writeClipboardEntry,
   type ClipboardEntry,
 } from "../../api/clipboard-history";
@@ -26,9 +24,6 @@ import { useI18n } from "../../i18n";
 
 /** 定时兜底清理间隔（固定，不暴露设置项，D6）。 */
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
-/** n 的有效范围（与后端契约一致）。 */
-const MAX_ENTRIES_MIN = 1;
-const MAX_ENTRIES_MAX = 1024;
 
 type EntryKind = "text" | "image" | "html" | "rtf" | "files";
 
@@ -104,9 +99,6 @@ function EntryCard(props: {
 export function ClipboardHistory() {
   const { t } = useI18n();
   const [entries, setEntries] = createSignal<ClipboardEntry[]>([]);
-  const [maxEntries, setMaxEntriesValue] = createSignal(64);
-  const [maxEntriesInput, setMaxEntriesInput] = createSignal(64);
-  const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [error, setError] = createSignal("");
   const [notice, setNotice] = createSignal("");
 
@@ -133,12 +125,6 @@ export function ClipboardHistory() {
     let disposed = false;
 
     void refresh();
-    void getMaxEntries()
-      .then((n) => {
-        setMaxEntriesValue(n);
-        setMaxEntriesInput(n);
-      })
-      .catch((err) => setError(getErrorCode(err) || String(err)));
 
     // 启动即监听（D10）；回写是否触发监听按项目经验不触发，实现后实测（契约 5.5）
     void startListening()
@@ -188,35 +174,16 @@ export function ClipboardHistory() {
     }
   }
 
-  async function handleSaveSettings() {
-    const n = Number(maxEntriesInput());
-    try {
-      const resp = await setMaxEntries(n);
-      setMaxEntriesValue(resp.maxEntries);
-      setMaxEntriesInput(resp.maxEntries);
-      setSettingsOpen(false);
-      await refresh();
-    } catch (err) {
-      setError(getErrorCode(err) || String(err));
-    }
-  }
-
   return (
-    <main class="container clipboard">
-      <header class="clipboard-header">
-        <h1>{t("clipboard.title")}</h1>
-        <div class="row">
-          <button type="button" onClick={handleClear}>
-            {t("clipboard.clear")}
-          </button>
-          <button type="button" onClick={() => setSettingsOpen(true)}>
-            {t("clipboard.settings")}
-          </button>
-        </div>
-      </header>
-
+    <>
       {error() && <p class="message error">{t(error()) || error()}</p>}
       {notice() && <p class="message notice">{notice()}</p>}
+
+      <div class="history-actions">
+        <button type="button" class="btn-ghost" onClick={handleClear}>
+          {t("clipboard.clear")}
+        </button>
+      </div>
 
       <ul class="entry-list">
         <For each={entries()}>
@@ -231,35 +198,6 @@ export function ClipboardHistory() {
       </ul>
 
       {entries().length === 0 && !error() && <p class="empty">{t("clipboard.empty")}</p>}
-      <p class="max-hint">
-        {t("clipboard.maxHint", { count: maxEntries() })}
-      </p>
-
-      {settingsOpen() && (
-        <div class="modal-backdrop" onClick={() => setSettingsOpen(false)}>
-          <div class="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{t("clipboard.settings")}</h2>
-            <label class="modal-field">
-              {t("clipboard.maxEntries")}
-              <input
-                type="number"
-                min={MAX_ENTRIES_MIN}
-                max={MAX_ENTRIES_MAX}
-                value={maxEntriesInput()}
-                onInput={(e) => setMaxEntriesInput(Number(e.currentTarget.value))}
-              />
-            </label>
-            <div class="row">
-              <button type="button" onClick={handleSaveSettings}>
-                {t("clipboard.save")}
-              </button>
-              <button type="button" onClick={() => setSettingsOpen(false)}>
-                {t("clipboard.cancel")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </main>
+    </>
   );
 }

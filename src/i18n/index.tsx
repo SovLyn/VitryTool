@@ -43,6 +43,17 @@ export interface I18nContextValue {
 
 const I18nContext = createContext<I18nContextValue>();
 
+const LOCALE_STORAGE_KEY = "vitrytool.locale";
+
+function loadLocale(): Locale {
+  try {
+    const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
+    return saved === "zh-CN" || saved === "en-US" ? saved : "zh-CN";
+  } catch {
+    return "zh-CN";
+  }
+}
+
 /** 轻量插值：将 `{name}` 替换为参数值；未提供的 key 保持原样。 */
 function format(template: string, params?: Record<string, string | number | boolean>): string {
   if (!params) return template;
@@ -52,12 +63,21 @@ function format(template: string, params?: Record<string, string | number | bool
 }
 
 export function I18nProvider(props: ParentProps) {
-  const [locale, setLocale] = createSignal<Locale>("zh-CN");
+  const [locale, setLocaleSignal] = createSignal<Locale>(loadLocale());
 
   const t: TFunction = (key, params) => {
     const dict = flatDictionaries[locale()] as Record<string, unknown>;
     const value = dict[key];
     return typeof value === "string" ? format(value, params) : String(value ?? "");
+  };
+
+  const setLocale = (next: Locale) => {
+    setLocaleSignal(next);
+    try {
+      localStorage.setItem(LOCALE_STORAGE_KEY, next);
+    } catch {
+      // 忽略持久化失败
+    }
   };
 
   const value: I18nContextValue = { locale, setLocale, t };

@@ -8,16 +8,11 @@
     "empty": "暂无剪贴记录，复制内容后自动出现在这里",
     "clear": "清空全部",
     "clearConfirm": "确定清空全部剪贴历史？",
-    "settings": "设置",
-    "maxEntries": "最大条数",
-    "save": "保存",
-    "cancel": "取消",
     "delete": "删除",
     "copied": "已写回剪贴板",
     "missingImage": "图片文件缺失",
     "imageLoadFailed": "图片加载失败",
     "image": "图片",
-    "maxHint": "最多保留 {count} 条",
     "kind": {
       "text": "文本",
       "image": "图片",
@@ -29,5 +24,18 @@
     "entry_not_found": "条目不存在",
     "invalid_max_entries": "上限需在 1 到 1024 之间",
     "storage_error": "历史数据读写失败"
+  },
+  "settings": {
+    "title": "设置",
+    "language": "语言",
+    "appearance": "外观",
+    "theme": "主题",
+    "themeDesc": "亮色、暗色或跟随系统",
+    "themeLight": "亮色",
+    "themeDark": "暗色",
+    "themeSystem": "跟随系统",
+    "clipboard": "剪贴板",
+    "maxEntries": "最大条数",
+    "maxEntriesDesc": "历史记录保留上限（1–1024）"
   }
 }
