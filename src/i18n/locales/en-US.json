@@ -3,11 +3,31 @@
     "title": "VitryTool",
     "tagline": "LAN information sharing tool"
   },
-  "demo": {
-    "greeting": "Welcome to VitryTool",
-    "hint": "Enter a name and click \"Greet\" to verify the front-backend bridge (scaffold demo, removed once the first feature lands).",
-    "enterName": "Enter a name...",
-    "greet": "Greet",
-    "result": "Greetings from Rust: {name}"
+  "clipboard": {
+    "title": "Clipboard History",
+    "empty": "No clipboard entries yet. Copy something and it will show up here.",
+    "clear": "Clear All",
+    "clearConfirm": "Clear all clipboard history?",
+    "settings": "Settings",
+    "maxEntries": "Max entries",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "copied": "Written back to clipboard",
+    "missingImage": "Image file missing",
+    "imageLoadFailed": "Failed to load image",
+    "image": "Image",
+    "maxHint": "Keeps up to {count} entries",
+    "kind": {
+      "text": "Text",
+      "image": "Image",
+      "html": "Rich text",
+      "rtf": "Rich text",
+      "files": "Files"
+    },
+    "capture_failed": "Failed to read clipboard",
+    "entry_not_found": "Entry not found",
+    "invalid_max_entries": "Max entries must be between 1 and 1024",
+    "storage_error": "Failed to read or write history data"
   }
 }

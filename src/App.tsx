@@ -1,31 +1,19 @@
-import { createSignal } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
-import { useI18n, locales, type Locale } from "./i18n";
+import { ClipboardHistory } from "./features/clipboard-history/ClipboardHistory";
+import { locales, useI18n, type Locale } from "./i18n";
 
 /**
  * 应用入口组件。
  *
- * 目前为脚手架演示（greet 前后端链路 + i18n 切换），
- * 首个功能落地后由 `src/features/<feature>/` 中的功能页面替换。
+ * 首个功能（剪贴板历史）已落地：主界面为历史列表；
+ * 脚手架 greet 演示已移除。
  */
 function App() {
-  const { t, locale, setLocale } = useI18n();
-  const [greetMsg, setGreetMsg] = createSignal("");
-  const [name, setName] = createSignal("");
-
-  async function greet() {
-    // 前端唯一与后端通信的方式是 invoke（见 docs/architecture.md 第 2 节）
-    await invoke("greet", { name: name() });
-    setGreetMsg(t("demo.result", { name: name() || "?" }));
-  }
+  const { locale, setLocale } = useI18n();
 
   return (
-    <main class="container">
-      <h1>{t("app.title")}</h1>
-      <p class="tagline">{t("app.tagline")}</p>
-
-      <div class="row lang-switcher">
+    <main class="app-root">
+      <div class="lang-switcher">
         {locales.map((l) => (
           <button
             type="button"
@@ -36,25 +24,7 @@ function App() {
           </button>
         ))}
       </div>
-
-      <h2>{t("demo.greeting")}</h2>
-      <p>{t("demo.hint")}</p>
-
-      <form
-        class="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder={t("demo.enterName")}
-        />
-        <button type="submit">{t("demo.greet")}</button>
-      </form>
-      <p>{greetMsg()}</p>
+      <ClipboardHistory />
     </main>
   );
 }

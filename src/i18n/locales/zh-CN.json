@@ -3,11 +3,31 @@
     "title": "VitryTool",
     "tagline": "局域网信息共享工具"
   },
-  "demo": {
-    "greeting": "欢迎使用 VitryTool",
-    "hint": "输入姓名并点击「问候」，验证前后端最小链路（脚手架演示，首个功能落地后移除）。",
-    "enterName": "输入姓名...",
-    "greet": "问候",
-    "result": "来自 Rust 的问候：{name}"
+  "clipboard": {
+    "title": "剪贴板历史",
+    "empty": "暂无剪贴记录，复制内容后自动出现在这里",
+    "clear": "清空全部",
+    "clearConfirm": "确定清空全部剪贴历史？",
+    "settings": "设置",
+    "maxEntries": "最大条数",
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "copied": "已写回剪贴板",
+    "missingImage": "图片文件缺失",
+    "imageLoadFailed": "图片加载失败",
+    "image": "图片",
+    "maxHint": "最多保留 {count} 条",
+    "kind": {
+      "text": "文本",
+      "image": "图片",
+      "html": "富文本",
+      "rtf": "富文本",
+      "files": "文件"
+    },
+    "capture_failed": "读取剪贴板失败",
+    "entry_not_found": "条目不存在",
+    "invalid_max_entries": "上限需在 1 到 1024 之间",
+    "storage_error": "历史数据读写失败"
   }
 }

@@ -3,9 +3,10 @@
 /// 应用全局状态。
 ///
 /// 所有功能共享的状态挂载在这里；功能私有的状态放在各自 mod 内。
+/// 剪贴板历史（首个功能）通过命令内 StoreBackend 直接访问 store，无需挂载共享状态。
 #[derive(Debug, Default)]
 pub struct AppState {
-    // TODO(首个功能)：在此挂载共享状态（如局域网会话、设置等）。
+    // 预留：后续功能需要共享状态时在此挂载（如设置、会话等）。
 }
 
 impl AppState {

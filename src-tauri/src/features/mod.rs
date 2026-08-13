@@ -10,5 +10,6 @@
 //!    - `tests.rs` —— 开发者测试（dt）：单元测试 / doctest（**必须**，覆盖度不做硬性要求）
 //! 3. 在 `lib.rs` 的 `invoke_handler` 注册命令（按功能分组注释）。
 //! 4. 编写功能文档 `docs/features/<feature>.md`，并按 `docs/versioning.md` 递增版本。
-//!
-//! 目前尚无功能签发；`greet` 为脚手架示例，首个功能落地后移除。
+
+/// 剪贴板历史（首个功能）。
+pub mod clipboard_history;

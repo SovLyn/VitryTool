@@ -10,21 +10,24 @@ mod features;
 
 use core::state::AppState;
 
-/// 脚手架示例命令（来自 create-tauri-app 模板）。
-///
-/// 仅用于验证前后端最小链路，**首个功能落地后移除**，
-/// 相关前端演示代码（`src/App.tsx` 中的 greet 调用）同步清理。
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_x::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            // 剪贴板历史（features/clipboard_history）
+            features::clipboard_history::capture_clipboard,
+            features::clipboard_history::get_clipboard_history,
+            features::clipboard_history::write_clipboard_entry,
+            features::clipboard_history::delete_clipboard_entry,
+            features::clipboard_history::clear_clipboard_history,
+            features::clipboard_history::cleanup_orphan_images,
+            features::clipboard_history::get_max_entries,
+            features::clipboard_history::set_max_entries,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

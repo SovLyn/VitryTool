@@ -2,7 +2,7 @@
 
 局域网信息共享工具（LAN information sharing）—— 用于在局域网内共享信息与文件的开源桌面应用。
 
-> **当前状态**：`0.0.1-alpha`，处于框架搭建期，首个功能尚未落地。本 README 将随项目推进持续更新。
+> **当前状态**：`0.1.0`，首个功能（剪贴板历史）已落地。
 
 ## 项目简介
 
@@ -12,7 +12,8 @@ VitryTool 的目标是提供轻量、本地的局域网信息共享能力，不�
 
 ## 功能规划
 
-- 首个功能（局域网信息共享）**规划中**，接口契约文档先行，见 `docs/api/`。
+- **已落地**：剪贴板历史（clipboard-history）——捕捉剪贴板变化并保存为可浏览、可回写的历史记录，见 [`docs/features/clipboard-history.md`](docs/features/clipboard-history.md) 与接口契约 [`docs/api/clipboard-history.md`](docs/api/clipboard-history.md)。
+- **规划中**：局域网信息共享（首个功能原规划），接口契约文档先行，见 `docs/api/`。
 - 功能进度与版本变化记录在 `CHANGELOG.md`。
 
 ## 技术栈
@@ -62,9 +63,15 @@ pnpm tauri build      # 桌面端打包
 | [`SECURITY.md`](SECURITY.md) | 安全漏洞报告 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 变更日志 |
 
+## 已知限制
+
+- **剪贴板历史性能**：历史列表通过 tauri-plugin-store 整体序列化持久化，接近上限（1024 条富文本）时读写存在性能开销，后续版本优化。
+- **连续复制**：Windows 剪贴板监视存在固有延迟，极速连续复制可能丢失中间内容。
+- 剪贴板历史**明文存储**敏感内容（密码等），提供单条删除与清空全部；暂停监听功能规划中。
+
 ## 版本管理
 
-当前版本 `0.0.1-alpha`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
+当前版本 `0.1.0`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
 
 ## 隐私
 

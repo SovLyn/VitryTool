@@ -1,6 +1,6 @@
 {
   "name": "vitrytool",
-  "version": "0.0.1-alpha",
+  "version": "0.1.0",
   "description": "A handy tool for lan information sharing and other staff",
   "type": "module",
   "scripts": {
@@ -16,7 +16,8 @@
     "@solid-primitives/i18n": "^2.2.1",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "solid-js": "^1.9.3"
+    "solid-js": "^1.9.3",
+    "tauri-plugin-clipboard-x-api": "^2.0.2"
   },
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",

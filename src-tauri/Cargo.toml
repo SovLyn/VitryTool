@@ -1,6 +1,6 @@
 [package]
 name = "vitrytool"
-version = "0.0.1-alpha"
+version = "0.1.0"
 description = "A handy tool for lan information sharing and other staff"
 authors = ["SovLyn"]
 edition = "2021"
@@ -18,8 +18,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-clipboard-x = "2.0.2"
+tauri-plugin-store = "2.4.4"
+chrono = "0.4.45"
+uuid = { version = "1.24.0", features = ["v4"] }
 
