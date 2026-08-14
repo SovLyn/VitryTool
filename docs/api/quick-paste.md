@@ -2,11 +2,11 @@
 
 - 状态：`已实现`
 - 关联功能文档：[docs/features/quick-paste.md](../features/quick-paste.md)
-- 版本影响：`minor`（0.1.2 → 0.2.0，已签发）；`patch`（0.2.2 → 0.2.3，待签发：平台能力检测 + 设置页警告）
+- 版本影响：`minor`（0.1.2 → 0.2.0，已签发）；`patch`（0.2.2 → 0.2.3，已签发：平台能力检测 + 设置页警告）；`patch`（0.2.3 → 0.2.4，已签发：小屏收藏交互，见 5.7）
 
 ## 1. 概述
 
-按住全局快捷键唤出一个**置顶小屏**（Quick Paste Popup），展示剪贴板历史（复用 clipboard-history 的条目与回写能力）；滚轮 / 方向键切换选中项，**松开快捷键**时将选中项按原始格式回写剪贴板并关闭小屏。配套三件事：
+按住全局快捷键唤出一个**置顶小屏**（Quick Paste Popup），展示剪贴板历史（复用 clipboard-history 的条目与回写能力）；滚轮 / 方向键切换选中项，**松开快捷键**时将选中项按原始格式回写剪贴板并关闭小屏；小屏内可收藏 / 取消收藏选中条目（`F` 键或星标按钮，见 5.7）。配套三件事：
 
 1. **快捷键录制组件**（HotkeyRecorder）：在设置页录制并保存全局快捷键；
 2. **系统托盘**：关闭主窗口改为隐藏（进程常驻），托盘唤出 / 退出；
@@ -115,6 +115,7 @@ type HotkeyCapabilityResp = { supported: boolean };
 - **无历史条目**：show 后列表为空，release 时直接关闭、不回写。
 - **小屏内按 Esc**：取消，直接 `quickPasteClose`（不回写）。
 - **滚轮切换**：`wheel` 的 `deltaY` 决定方向（下滚 +1 / 上滚 -1），索引在 `0..len-1` 内 **clamp（不循环）**；选中变化时列表容器将选中项滚动到可见区域。同时支持键盘 ↑ / ↓（等价操作）。
+- **收藏 / 取消收藏（0.2.4）**：小屏内按 `F` 键或在选中条目上点星标按钮，调用 `setEntryFavorite(id, favorited)` 切换收藏状态；变更后广播既有 `clipboard-history://updated` 事件，列表按收藏区置顶重新排列并**保持当前选中条目**（契约 clipboard-history 5.8；收藏条目不纳入数量上限）。
 - 小屏显示期间再次按下快捷键（重复 Pressed）忽略；重复 Released 忽略。
 
 ### 5.4 小屏窗口
@@ -137,8 +138,9 @@ type HotkeyCapabilityResp = { supported: boolean };
 
 ### 5.7 与剪贴板历史的关系
 
-- 复用 `getClipboardHistory`（最新在前）与 `writeClipboardEntry`（按原始格式回写）两个既有命令，**不新增剪贴板读写逻辑**。
+- 复用 `getClipboardHistory`（0.2.4 起返回**收藏区在前**、区内按收藏时间倒序，其后按捕捉时间倒序，见契约 clipboard-history 5.8）与 `writeClipboardEntry`（按原始格式回写）两个既有命令，**不新增剪贴板读写逻辑**。
 - 回写不触发监听（既有经验，契约 5.5）；若触发则去重置顶自然置顶，无害（实测确认）。
+- **小屏收藏（0.2.4）**：popup 内按 `F` 键或点击选中条目星标按钮切换收藏（选中行星标反色为 accent-text：实心 = 已收藏 / 描边 = 未收藏）；变更后 `emit` 既有 `clipboard-history://updated` 事件，主窗口与小屏经既有刷新路径同步（小屏保持当前选中条目）。收藏条目置顶展示、豁免数量上限、不纳入淘汰，见契约 clipboard-history 5.8。
 
 ### 5.8 平台能力检测（全局快捷键可用性）
 

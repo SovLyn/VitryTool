@@ -18,6 +18,9 @@ pub struct ClipboardEntry {
     pub id: String,
     /// ISO 8601，捕捉时刻（后端取系统时间）。
     pub captured_at: String,
+    /// 收藏时刻（ISO 8601）；存在即收藏（契约 5.8、`dev/CONTEXT.md`「收藏」）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favorited_at: Option<String>,
     /// 纯文本。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -43,6 +46,11 @@ impl ClipboardEntry {
             && self.rtf.is_none()
             && self.image.is_none()
             && self.files.is_none()
+    }
+
+    /// 是否已收藏（`favorited_at` 存在即收藏，见契约 5.8）。
+    pub fn is_favorite(&self) -> bool {
+        self.favorited_at.is_some()
     }
 }
 
@@ -151,17 +159,52 @@ pub fn dedup_promote_and_evict(
     }
 }
 
-/// 超过上限时删除最旧条目（队尾），返回被删条目的图片文件路径（调用方负责删除）。
+/// 展示排序（契约 5.8）：收藏区在前（区内按收藏时间倒序，最近收藏最前），
+/// 其后普通条目按捕捉时间倒序。
+///
+/// 稳定排序：组内键值相同时保持原相对顺序（store 以捕捉时间倒序存储，普通区无需移动）。
+pub fn sort_for_display(entries: &mut [ClipboardEntry]) {
+    use std::cmp::Ordering;
+    entries.sort_by(|a, b| match (a.is_favorite(), b.is_favorite()) {
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (true, true) => b.favorited_at.cmp(&a.favorited_at),
+        (false, false) => b.captured_at.cmp(&a.captured_at),
+    });
+}
+
+/// 超过上限时删除最旧的非收藏条目（收藏豁免，契约 5.8），返回被删条目的图片文件路径。
+///
+/// 条目列表以捕捉时间倒序存储（最新在前），故最旧的非收藏条目 = 队尾方向第一个非收藏条目；
+/// 若非收藏条目数 ≤ 上限（如全部为收藏），不淘汰任何条目。
 pub fn evict_over_limit(entries: &mut Vec<ClipboardEntry>, max_entries: usize) -> Vec<PathBuf> {
     let mut evicted = Vec::new();
-    while entries.len() > max_entries {
-        if let Some(oldest) = entries.pop() {
-            if let Some(img) = oldest.image {
-                evicted.push(PathBuf::from(img.path));
-            }
+    while entries.iter().filter(|e| !e.is_favorite()).count() > max_entries {
+        let Some(pos) = entries.iter().rposition(|e| !e.is_favorite()) else {
+            break;
+        };
+        let removed = entries.remove(pos);
+        if let Some(img) = removed.image {
+            evicted.push(PathBuf::from(img.path));
         }
     }
     evicted
+}
+
+/// 设置/取消收藏（契约 5.8）：返回是否找到目标条目。
+///
+/// - 收藏：`favorited_at = now`（重复收藏刷新收藏时间，收藏区重新置顶，幂等）；
+/// - 取消收藏：清空 `favorited_at`，不触发淘汰（容忍短暂超限，下次捕捉/调上限时归位）。
+pub fn set_favorite(entries: &mut [ClipboardEntry], id: &str, favorited: bool, now: &str) -> bool {
+    let Some(entry) = entries.iter_mut().find(|e| e.id == id) else {
+        return false;
+    };
+    entry.favorited_at = if favorited {
+        Some(now.to_string())
+    } else {
+        None
+    };
+    true
 }
 
 /// 计算孤儿图片：目录中存在但没有任何存活条目引用的文件（契约 5.4-②）。
@@ -193,6 +236,7 @@ mod unit {
         ClipboardEntry {
             id: id.to_string(),
             captured_at: "2026-08-13T00:00:00Z".to_string(),
+            favorited_at: None,
             text: text.map(str::to_string),
             html: None,
             rtf: None,
@@ -373,5 +417,134 @@ mod unit {
         assert!(DEFAULT_MAX_ENTRIES < MAX_ENTRIES_LIMIT);
         assert_eq!(MAX_ENTRIES_LIMIT, 1024);
         assert_eq!(DEFAULT_MAX_ENTRIES, 64);
+    }
+
+    #[test]
+    fn sort_favorites_first_then_by_favorited_at_desc() {
+        let mut entries = vec![
+            entry("plain-old", Some("p"), None),
+            entry("fav-old", Some("f"), None),
+            entry("fav-new", Some("f2"), None),
+        ];
+        entries[1].favorited_at = Some("2026-08-13T01:00:00Z".to_string());
+        entries[2].favorited_at = Some("2026-08-13T02:00:00Z".to_string());
+        sort_for_display(&mut entries);
+        assert_eq!(entries[0].id, "fav-new"); // 收藏区在前，区内最近收藏最前
+        assert_eq!(entries[1].id, "fav-old");
+        assert_eq!(entries[2].id, "plain-old");
+    }
+
+    #[test]
+    fn sort_keeps_recency_order_within_groups() {
+        // 普通区按 capturedAt 倒序（稳定排序保持原相对序）
+        let mut entries = vec![entry("older", Some("a"), None), entry("newer", Some("b"), None)];
+        entries[0].captured_at = "2026-08-13T00:00:00Z".to_string();
+        entries[1].captured_at = "2026-08-13T01:00:00Z".to_string();
+        sort_for_display(&mut entries);
+        assert_eq!(entries[0].id, "newer");
+        assert_eq!(entries[1].id, "older");
+    }
+
+    #[test]
+    fn evict_skips_favorites_and_removes_oldest_non_favorite() {
+        let mut entries = vec![
+            entry("newest", Some("c"), Some("/img/c.png")),
+            entry("mid", Some("b"), None),
+            entry("fav1", Some("f"), Some("/img/f.png")),
+            entry("oldest", Some("a"), Some("/img/a.png")),
+        ];
+        entries[2].favorited_at = Some("2026-08-13T01:00:00Z".to_string());
+        let evicted = evict_over_limit(&mut entries, 2);
+        // 非收藏 3 > 上限 2 → 淘汰最旧非收藏（oldest）；收藏条目豁免
+        assert_eq!(entries.len(), 3);
+        assert!(entries.iter().any(|e| e.id == "fav1"));
+        assert!(!entries.iter().any(|e| e.id == "oldest"));
+        assert_eq!(evicted, vec![PathBuf::from("/img/a.png")]);
+    }
+
+    #[test]
+    fn evict_all_favorites_evicts_nothing() {
+        let mut entries = vec![
+            entry("f1", Some("a"), Some("/img/a.png")),
+            entry("f2", Some("b"), Some("/img/b.png")),
+        ];
+        entries[0].favorited_at = Some("2026-08-13T01:00:00Z".to_string());
+        entries[1].favorited_at = Some("2026-08-13T02:00:00Z".to_string());
+        let evicted = evict_over_limit(&mut entries, 1);
+        assert!(evicted.is_empty());
+        assert_eq!(entries.len(), 2); // 全部收藏 → 永不淘汰
+    }
+
+    #[test]
+    fn evict_over_limit_keeps_favorites_at_tail() {
+        // 收藏条目位于队尾（最旧位置）也不被淘汰
+        let mut entries = vec![
+            entry("new", Some("c"), None),
+            entry("mid", Some("b"), None),
+            entry("oldest", Some("a"), Some("/img/a.png")),
+            entry("fav-tail", Some("f"), Some("/img/fav.png")),
+        ];
+        entries[3].favorited_at = Some("2026-08-13T00:00:00Z".to_string());
+        let evicted = evict_over_limit(&mut entries, 2);
+        // 非收藏 3 > 上限 2 → 淘汰最旧非收藏（oldest），队尾收藏条目豁免
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[2].id, "fav-tail");
+        assert!(!entries.iter().any(|e| e.id == "oldest"));
+        assert_eq!(evicted, vec![PathBuf::from("/img/a.png")]);
+    }
+
+    #[test]
+    fn set_favorite_sets_clears_and_refreshes() {
+        let mut entries = vec![entry("a", Some("x"), None), entry("b", Some("y"), None)];
+
+        assert!(set_favorite(&mut entries, "a", true, "2026-08-13T01:00:00Z"));
+        assert_eq!(entries[0].favorited_at.as_deref(), Some("2026-08-13T01:00:00Z"));
+        assert!(entries[0].is_favorite());
+
+        // 重复收藏 → 刷新收藏时间（收藏区重新置顶，幂等）
+        assert!(set_favorite(&mut entries, "a", true, "2026-08-13T02:00:00Z"));
+        assert_eq!(entries[0].favorited_at.as_deref(), Some("2026-08-13T02:00:00Z"));
+
+        // 取消收藏 → 清空标志（不触发淘汰，调用方按契约容忍超限）
+        assert!(set_favorite(&mut entries, "a", false, "2026-08-13T03:00:00Z"));
+        assert!(!entries[0].is_favorite());
+        assert!(entries[0].favorited_at.is_none());
+
+        // 目标不存在 → false
+        assert!(!set_favorite(&mut entries, "missing", true, "2026-08-13T04:00:00Z"));
+    }
+
+    #[test]
+    fn dedup_promote_preserves_favorite_status() {
+        let mut entries = vec![];
+        let outcome = dedup_promote_and_evict(&mut entries, entry("a", Some("same"), None), 64);
+        assert!(outcome.is_new);
+        set_favorite(&mut entries, "a", true, "2026-08-13T01:00:00Z");
+
+        // 相同文本再次捕捉 → 置顶既有条目，收藏状态与收藏时间均保留
+        let outcome2 = dedup_promote_and_evict(&mut entries, entry("dup", Some("same"), None), 64);
+        assert!(!outcome2.is_new);
+        assert_eq!(entries[0].id, "a");
+        assert!(entries[0].is_favorite());
+        assert_eq!(
+            entries[0].favorited_at.as_deref(),
+            Some("2026-08-13T01:00:00Z") // 去重置顶只刷新 capturedAt，不动 favoritedAt
+        );
+    }
+
+    #[test]
+    fn serde_roundtrip_preserves_favorite_and_defaults_for_old_data() {
+        // 收藏条目序列化 → 反序列化后状态保持
+        let mut fav = entry("a", Some("x"), None);
+        fav.favorited_at = Some("2026-08-13T01:00:00Z".to_string());
+        let json = serde_json::to_string(&fav).unwrap();
+        let back: ClipboardEntry = serde_json::from_str(&json).unwrap();
+        assert!(back.is_favorite());
+
+        // 旧数据（无 favoritedAt 字段）反序列化 → 未收藏（serde default，零迁移）
+        let old_json = r#"{"id":"a","capturedAt":"2026-08-13T00:00:00Z","text":"x"}"#;
+        let old: ClipboardEntry = serde_json::from_str(old_json).unwrap();
+        assert!(!old.is_favorite());
+        assert!(old.favorited_at.is_none());
     }
 }

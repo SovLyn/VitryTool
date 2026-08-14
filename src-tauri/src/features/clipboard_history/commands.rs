@@ -4,8 +4,9 @@
 //! 后端无自有时钟（见 `docs/adr/0001-clipboard-capture-via-webview-events.md`）。
 
 use super::service::{
-    dedup_promote_and_evict, evict_over_limit, orphan_files, CleanupResp, ClipboardEntry,
-    ClipboardFiles, ClipboardImage, InsertOutcome, SetMaxResp, MAX_ENTRIES_LIMIT,
+    dedup_promote_and_evict, evict_over_limit, orphan_files, set_favorite, sort_for_display,
+    CleanupResp, ClipboardEntry, ClipboardFiles, ClipboardImage, InsertOutcome, SetMaxResp,
+    MAX_ENTRIES_LIMIT,
 };
 use super::store::{HistoryStore, StoreBackend};
 use crate::core::error::ApiError;
@@ -76,6 +77,7 @@ async fn read_clipboard(app: &AppHandle) -> (Option<ClipboardEntry>, Vec<String>
     let mut entry = ClipboardEntry {
         id: uuid::Uuid::new_v4().to_string(),
         captured_at: now_iso8601(),
+        favorited_at: None, // 新捕捉默认为非收藏（契约 5.8）
         text: None,
         html: None,
         rtf: None,
@@ -203,11 +205,13 @@ pub async fn capture_clipboard(app: AppHandle) -> Result<Option<ClipboardEntry>,
     Ok(Some(outcome.entry))
 }
 
-/// 读取全部条目（最新在前），并计算图片缺失派生标记（契约 5.4-③）。
+/// 读取全部条目，按展示序返回（收藏区在前、区内按收藏时间倒序，其后按捕捉时间倒序），
+/// 并计算图片缺失派生标记（契约 5.4-③、5.8）。
 #[tauri::command]
 pub async fn get_clipboard_history(app: AppHandle) -> Result<Vec<ClipboardEntry>, ApiError> {
     let store = StoreBackend::new(&app)?;
     let mut entries = store.load_entries()?;
+    sort_for_display(&mut entries);
     for entry in &mut entries {
         if let Some(img) = &mut entry.image {
             img.missing = !Path::new(&img.path).exists();
@@ -283,6 +287,24 @@ pub async fn delete_clipboard_entry(app: AppHandle, id: String) -> Result<(), Ap
         "delete_clipboard_entry: id={id} had_image={}",
         removed.image.is_some()
     );
+    store.save_entries(&entries)
+}
+
+/// 设置/取消收藏（契约 5.8）：幂等；重复收藏刷新收藏时间（收藏区重新置顶）。
+/// 与 capture 同持 `CAPTURE_LOCK`，串行化「读 → 改 → 写」store 段，防丢失更新。
+#[tauri::command]
+pub async fn set_entry_favorite(
+    app: AppHandle,
+    id: String,
+    favorited: bool,
+) -> Result<(), ApiError> {
+    let _guard = CAPTURE_LOCK.lock().unwrap();
+    let store = StoreBackend::new(&app)?;
+    let mut entries = store.load_entries()?;
+    if !set_favorite(&mut entries, &id, favorited, &now_iso8601()) {
+        return Err(entry_not_found(&id));
+    }
+    log::debug!("set_entry_favorite: id={id} favorited={favorited}");
     store.save_entries(&entries)
 }
 

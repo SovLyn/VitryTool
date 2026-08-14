@@ -38,6 +38,7 @@ pub fn run() {
             features::clipboard_history::get_clipboard_history,
             features::clipboard_history::write_clipboard_entry,
             features::clipboard_history::delete_clipboard_entry,
+            features::clipboard_history::set_entry_favorite,
             features::clipboard_history::clear_clipboard_history,
             features::clipboard_history::cleanup_orphan_images,
             features::clipboard_history::get_max_entries,

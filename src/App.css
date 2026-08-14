@@ -298,6 +298,55 @@ button:active {
   color: var(--text);
 }
 
+/* ---- 收藏（Favorite，契约 5.8） ---- */
+/* 收藏区标题：小字大写，与设置组标题同一视觉层级（F1） */
+.entry-section-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+  padding: 4px 2px 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* 收藏卡片：左侧 3px accent 强调条（F2/F8），材质与投影不变 */
+.entry-card.favorited {
+  position: relative;
+}
+
+.entry-card.favorited::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+/* 星标按钮：未收藏描边（tertiary）、已收藏实心（accent）；按下即反馈（F5） */
+.entry-star {
+  flex-shrink: 0;
+  padding: 5px;
+  border-radius: 7px;
+  color: var(--text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 90ms ease-out, background-color 0.15s ease, color 0.15s ease;
+}
+
+.entry-star:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.entry-star.favorited {
+  color: var(--accent);
+}
+
 .empty {
   color: var(--text-tertiary);
   text-align: center;

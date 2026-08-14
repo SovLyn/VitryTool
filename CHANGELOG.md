@@ -2,6 +2,25 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
+## [0.2.4] - 2026-08-14
+
+### 新增
+
+- **剪贴板收藏（Favorite）**（契约 `docs/api/clipboard-history.md` 5.8）：
+  - 条目新增 `favoritedAt` 字段（收藏时刻，存在即收藏；旧数据 serde `default` 零迁移）。
+  - 新命令 `setEntryFavorite(id, favorited)`（幂等；重复收藏刷新收藏时间，收藏区重新置顶）。
+  - 收藏条目**豁免数量上限**：`maxEntries` 只约束非收藏条目，`evict_over_limit` 仅淘汰最旧的非收藏条目；取消收藏不触发淘汰（容忍短暂超限，下次捕捉/调上限归位）。
+  - `getClipboardHistory` 后端排序返回：收藏区在前（区内按收藏时间倒序），其后按捕捉时间倒序（`service::sort_for_display` 稳定排序，两窗共用）。
+  - 收藏条目计入孤儿图片判定引用（条目存活期间图片不被清理）；收藏不豁免主动清空与显式删除。
+  - **主窗口**：收藏区分组标题 + 卡片左侧 accent 强调条 + 星标按钮（`aria-pressed`）；收藏/取消收藏后复用 `clipboard-history://updated` 事件跨窗同步。
+  - **快速粘贴小屏**：`F` 键或选中条目星标按钮切换收藏（选中行星标反色为 accent-text）；提示行更新。
+  - 后端 dt 新增 9 组（展示排序 / 收藏豁免淘汰 / set_favorite 幂等与刷新 / 旧数据兼容 / 收藏流程组合），前端新增 vitest 用例（API 封装 + 小屏 F 键/星标按钮）。
+
+### 变更
+
+- 版本 0.2.3 → 0.2.4（三处同步）。
+- `dev/CONTEXT.md` 新增「收藏（Favorite）」术语与规则。
+
 ## [0.2.3] - 2026-08-14
 
 ### 新增

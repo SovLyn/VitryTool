@@ -4,7 +4,8 @@
 //! 「命令级流程」与 store 抽象的组合，不依赖 Tauri 运行时。
 
 use super::service::{
-    dedup_promote_and_evict, evict_over_limit, ClipboardEntry, ClipboardImage,
+    dedup_promote_and_evict, evict_over_limit, set_favorite, sort_for_display, ClipboardEntry,
+    ClipboardImage,
 };
 use super::store::HistoryStore;
 use crate::core::error::ApiError;
@@ -55,6 +56,7 @@ fn entry(id: &str, text: &str, image: Option<&str>) -> ClipboardEntry {
     ClipboardEntry {
         id: id.to_string(),
         captured_at: "2026-08-13T00:00:00Z".to_string(),
+        favorited_at: None,
         text: Some(text.to_string()),
         html: None,
         rtf: None,
@@ -118,4 +120,48 @@ fn max_entries_persisted_and_applied() {
     let evicted = evict_over_limit(&mut entries, 2);
     assert_eq!(evicted.len(), 1);
     assert_eq!(evicted[0].to_string_lossy(), "/img/a.png");
+}
+
+/// 收藏流程组合（契约 5.8）：收藏豁免淘汰、展示排序、取消收藏容忍超限、去重置顶保持收藏。
+#[test]
+fn favorite_flow_survives_eviction_and_sorts_to_top() {
+    let store = MemoryStore::new(2);
+    let mut entries = store.load_entries().unwrap();
+
+    // 捕捉三条（上限 2）→ 淘汰最旧的普通条目
+    for (i, text) in ["a", "b", "c"].iter().enumerate() {
+        let outcome = dedup_promote_and_evict(&mut entries, entry(&format!("id-{i}"), text, None), 2);
+        assert!(outcome.is_new);
+    }
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].id, "id-2");
+    assert_eq!(entries[1].id, "id-1");
+
+    // 收藏最旧的 id-1（此刻位于队尾）
+    assert!(set_favorite(&mut entries, "id-1", true, "2026-08-13T01:00:00Z"));
+    store.save_entries(&entries).unwrap();
+
+    // 继续捕捉两条 → 淘汰最旧的非收藏（id-2），收藏的 id-1 豁免
+    for (i, text) in ["d", "e"].iter().enumerate() {
+        let outcome = dedup_promote_and_evict(
+            &mut entries,
+            entry(&format!("id-{}", 3 + i), text, None),
+            2,
+        );
+        assert!(outcome.is_new);
+    }
+    assert_eq!(entries.len(), 3); // 2 非收藏 + 1 收藏（收藏豁免上限）
+    assert!(entries.iter().any(|e| e.id == "id-1" && e.is_favorite()));
+    assert!(!entries.iter().any(|e| e.id == "id-2")); // 最旧非收藏被淘汰
+
+    // 展示序：收藏区在前
+    sort_for_display(&mut entries);
+    assert_eq!(entries[0].id, "id-1");
+    assert!(entries.iter().skip(1).all(|e| !e.is_favorite()));
+
+    // 取消收藏 → 不触发淘汰（容忍短暂超限：普通条目数 3 > 上限 2 仍全部保留）
+    assert!(set_favorite(&mut entries, "id-1", false, "2026-08-13T02:00:00Z"));
+    store.save_entries(&entries).unwrap();
+    assert_eq!(entries.len(), 3);
+    assert!(!entries.iter().any(|e| e.is_favorite()));
 }

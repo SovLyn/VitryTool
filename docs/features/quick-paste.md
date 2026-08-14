@@ -1,6 +1,6 @@
 # 快速粘贴（quick-paste）
 
-- 状态：已完成（0.2.0 签发；0.2.3 平台能力检测与设置页警告）
+- 状态：已完成（0.2.0 签发；0.2.3 平台能力检测与设置页警告；0.2.4 小屏收藏交互）
 - 接口契约：[docs/api/quick-paste.md](../api/quick-paste.md)
 - 后端 mod：src-tauri/src/features/quick_paste/
 - 前端目录：src/features/quick-paste/
@@ -51,6 +51,8 @@ src/features/settings/Settings.tsx          # 设置页新增「快捷操作」�
 
 滚轮 / ↑↓ → 切换选中（边界 clamp 不循环；选中项滚动到可见区域）
 
+F / 星标按钮 → 收藏 / 取消收藏选中条目（0.2.4：收藏区置顶、豁免上限；跨窗事件同步）
+
 松开快捷键
   → Released（Rust）→ emit "quick-paste://release"（携带会话 id）
   → 小屏前端回写选中项 → quickPasteClose(会话 id) → 隐藏
@@ -61,7 +63,7 @@ Esc（小屏内）→ 直接关闭，不回写
 
 竞态处理：首次按下时 popup WebView 可能尚未加载完成——小屏挂载后调用 `quickPasteReady`，后端若存在挂起的按下事件则补发 show（契约 5.3）。
 
-数据同步（0.2.1）：剪贴板捕捉为应用级监听（`listener.ts`），小屏 show 时先补一次 `captureClipboard`；小屏激活期间收到 `clipboard-history://updated` 实时刷新列表并保持当前选中条目，未激活时不刷新。
+数据同步（0.2.1）：剪贴板捕捉为应用级监听（`listener.ts`），小屏 show 时先补一次 `captureClipboard`；小屏激活期间收到 `clipboard-history://updated` 实时刷新列表并保持当前选中条目，未激活时不刷新。0.2.4 起，小屏内收藏 / 取消收藏（`F` 键 / 星标按钮）同样经该事件跨窗同步，列表按收藏区置顶重排并保持选中。
 
 ## 托盘与窗口
 
@@ -87,7 +89,7 @@ Esc（小屏内）→ 直接关闭，不回写
 ## 测试要点
 
 - 后端 dt（`cargo test`）：快捷键规范化（大小写 / 别名 / 修饰键去重 / 顺序固定）、校验拒绝分支（无修饰键 / 仅 Shift / 无主键 / 未知 token / 两个主键）、会话状态机（自增 / 防过期误关 / 重复按下幂等）、平台能力检测（Wayland 默认不支持 / `GDK_BACKEND=x11` 例外 / X11 会话支持 / 会话变量缺失分支）。
-- 前端 vitest：invoke 封装（含 `getHotkeyCapability`）、HotkeyRecorder（录制组合 / 纯修饰键忽略 / 非法组合提示 / Esc 取消 / 展示格式化）、QuickPastePopup（show 补捕捉与高亮 / wheel 切换与 clamp / release 回写选中并 close / 过期会话忽略 / 空历史 / Esc 取消 / updated 实时刷新保持选中 / 未激活不刷新）、设置页能力分支（`supported=false` 显示警告且无录制入口 / 支持时正常 / 检测失败 fail-open）、i18n 跨窗口 storage 同步。
+- 前端 vitest：invoke 封装（含 `getHotkeyCapability`）、HotkeyRecorder（录制组合 / 纯修饰键忽略 / 非法组合提示 / Esc 取消 / 展示格式化）、QuickPastePopup（show 补捕捉与高亮 / wheel 切换与 clamp / release 回写选中并 close / 过期会话忽略 / 空历史 / Esc 取消 / updated 实时刷新保持选中 / 未激活不刷新 / **F 键与星标按钮收藏 / 收藏后保持选中**）、设置页能力分支（`supported=false` 显示警告且无录制入口 / 支持时正常 / 检测失败 fail-open）、i18n 跨窗口 storage 同步。
 - 需要人工实测（真实环境）：
   - 全局快捷键在**其他应用窗口上方**是否生效（焦点不在 VitryTool）；
   - **设置页切语言 → 复制新内容 → 唤出小窗：新内容应出现**（0.2.1 修复点）；

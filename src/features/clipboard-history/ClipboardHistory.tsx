@@ -7,17 +7,19 @@
 //! 剪贴板捕捉与定时清理已提升到应用级（`listener.ts`），与页面视图无关——
 //! 用户在设置页或主窗口隐藏期间复制的内容也会进入历史（0.2.1 修复）。
 
-import { createSignal, For, onCleanup, onMount } from "solid-js";
+import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import {
   clearClipboardHistory,
   deleteClipboardEntry,
   getClipboardHistory,
   getErrorCode,
+  setEntryFavorite,
   writeClipboardEntry,
   type ClipboardEntry,
 } from "../../api/clipboard-history";
+import { StarIcon } from "../../components/StarIcon";
 import { useI18n } from "../../i18n";
 import { CLIPBOARD_UPDATED_EVENT } from "./listener";
 
@@ -40,20 +42,25 @@ function formatTime(iso: string): string {
  * 单条历史卡片（独立组件以持有局部信号）。
  *
  * 点击卡片回写剪贴板；图片缩略图加载失败（asset 协议未命中/文件异常）时
- * 回退为占位文本，而非显示裂图。
+ * 回退为占位文本，而非显示裂图。收藏条目带左侧强调条与星标（契约 5.8）。
  */
 function EntryCard(props: {
   entry: ClipboardEntry;
   onCopy: (id: string) => void;
   onDelete: (id: string) => void;
+  onToggleFavorite: (id: string, favorited: boolean) => void;
 }) {
   const { t } = useI18n();
   const [imgFailed, setImgFailed] = createSignal(false);
   const kind = entryKind(props.entry);
   const missing = props.entry.image?.missing ?? false;
+  const favorited = !!props.entry.favoritedAt;
 
   return (
-    <li class="entry-card" onClick={() => props.onCopy(props.entry.id)}>
+    <li
+      class={favorited ? "entry-card favorited" : "entry-card"}
+      onClick={() => props.onCopy(props.entry.id)}
+    >
       <div class="entry-preview">
         {kind === "image" && !missing && !imgFailed() && props.entry.image && (
           <img
@@ -80,6 +87,18 @@ function EntryCard(props: {
       </div>
       <button
         type="button"
+        class={favorited ? "entry-star favorited" : "entry-star"}
+        aria-label={favorited ? t("clipboard.unfavorite") : t("clipboard.favorite")}
+        aria-pressed={favorited}
+        onClick={(e) => {
+          e.stopPropagation();
+          props.onToggleFavorite(props.entry.id, !favorited);
+        }}
+      >
+        <StarIcon filled={favorited} />
+      </button>
+      <button
+        type="button"
         class="entry-delete"
         onClick={(e) => {
           e.stopPropagation();
@@ -97,6 +116,10 @@ export function ClipboardHistory() {
   const [entries, setEntries] = createSignal<ClipboardEntry[]>([]);
   const [error, setError] = createSignal("");
   const [notice, setNotice] = createSignal("");
+
+  // 收藏区在前（后端已按展示序返回，契约 5.8）；分组仅为渲染划分
+  const favorites = () => entries().filter((e) => e.favoritedAt);
+  const regular = () => entries().filter((e) => !e.favoritedAt);
 
   async function refresh() {
     try {
@@ -137,6 +160,16 @@ export function ClipboardHistory() {
     }
   }
 
+  async function handleToggleFavorite(id: string, favorited: boolean) {
+    try {
+      await setEntryFavorite(id, favorited);
+      // 跨窗同步：两窗共用既有刷新路径（契约 5.8）
+      void emit(CLIPBOARD_UPDATED_EVENT, { id });
+    } catch (err) {
+      setError(getErrorCode(err) || String(err));
+    }
+  }
+
   async function handleClear() {
     if (!window.confirm(t("clipboard.clearConfirm"))) return;
     try {
@@ -159,12 +192,28 @@ export function ClipboardHistory() {
       </div>
 
       <ul class="entry-list">
-        <For each={entries()}>
+        <Show when={favorites().length > 0}>
+          <li class="entry-section-title">
+            {t("clipboard.favorites")} ({favorites().length})
+          </li>
+        </Show>
+        <For each={favorites()}>
           {(entry) => (
             <EntryCard
               entry={entry}
               onCopy={(id) => void handleCopy(id)}
               onDelete={(id) => void handleDelete(id)}
+              onToggleFavorite={(id, fav) => void handleToggleFavorite(id, fav)}
+            />
+          )}
+        </For>
+        <For each={regular()}>
+          {(entry) => (
+            <EntryCard
+              entry={entry}
+              onCopy={(id) => void handleCopy(id)}
+              onDelete={(id) => void handleDelete(id)}
+              onToggleFavorite={(id, fav) => void handleToggleFavorite(id, fav)}
             />
           )}
         </For>

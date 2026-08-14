@@ -24,6 +24,7 @@ export interface ClipboardFiles {
 export interface ClipboardEntry {
   id: string;
   capturedAt: string; // ISO 8601
+  favoritedAt?: string; // ISO 8601 收藏时刻；存在即收藏（0.2.4）
   text?: string;
   html?: string;
   rtf?: string;
@@ -75,6 +76,11 @@ export function writeClipboardEntry(id: string): Promise<void> {
 /** 单条删除（含其图片文件）。 */
 export function deleteClipboardEntry(id: string): Promise<void> {
   return invoke<void>("delete_clipboard_entry", { id });
+}
+
+/** 设置/取消收藏（幂等；重复收藏刷新收藏时间，收藏区重新置顶）。 */
+export function setEntryFavorite(id: string, favorited: boolean): Promise<void> {
+  return invoke<void>("set_entry_favorite", { id, favorited });
 }
 
 /** 清空全部条目与图片文件。 */

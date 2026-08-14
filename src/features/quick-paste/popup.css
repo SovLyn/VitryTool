@@ -106,6 +106,34 @@ body {
   opacity: 0.7;
 }
 
+/* 星标按钮：未收藏描边（tertiary）、已收藏实心（accent）；选中行反色为 accent-text（F7） */
+.qp-star {
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  transition: background-color 100ms ease-out, color 100ms ease-out, transform 90ms ease-out;
+}
+
+.qp-star:hover {
+  background: var(--hover);
+}
+
+.qp-star.favorited {
+  color: var(--accent);
+}
+
+.qp-item.active .qp-star {
+  color: var(--accent-text); /* 选中行内统一反色，实心/描边区分状态 */
+}
+
+.qp-item.active .qp-star:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
 .qp-item.active {
   background: var(--accent);
   color: var(--accent-text);

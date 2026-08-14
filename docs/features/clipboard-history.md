@@ -1,6 +1,6 @@
 # 剪贴板历史（clipboard-history）
 
-- 状态：已完成（0.1.0 签发）
+- 状态：已完成（0.1.0 签发；0.2.4 新增收藏）
 - 接口契约：[docs/api/clipboard-history.md](../api/clipboard-history.md)
 - 后端 mod：src-tauri/src/features/clipboard_history/
 - 前端目录：src/features/clipboard-history/
@@ -13,6 +13,7 @@
 
 - 复制文本/富文本/图片/文件后，应用内随时回看最近复制内容，点击条目即可写回剪贴板再次粘贴。
 - 需要找回一段之前复制的文字、一张截图或一个文件引用。
+- **收藏常用内容**（0.2.4）：星标收藏的条目置顶展示、带特殊外观、豁免数量上限淘汰，主窗口与小屏均可收藏/取消收藏（小屏按 `F` 或点星标）。
 - 临时不想让某些内容进入历史时，可单条删除或清空全部（暂停监听由后续全局快捷键提供，见 TODO）。
 
 ## 架构位置
@@ -20,8 +21,8 @@
 ```
 src-tauri/src/features/clipboard_history/
 ├── mod.rs       # 模块声明与导出
-├── commands.rs  # #[tauri::command] 薄壳（8 个命令，capture 带互斥锁）
-├── service.rs   # 纯逻辑：去重置顶 / 即时淘汰 / 孤儿计算（无 IO，可独立测试）
+├── commands.rs  # #[tauri::command] 薄壳（9 个命令，capture / setEntryFavorite 带互斥锁）
+├── service.rs   # 纯逻辑：去重置顶 / 即时淘汰 / 收藏 / 展示排序 / 孤儿计算（无 IO，可独立测试）
 ├── store.rs     # 持久化抽象（HistoryStore）+ tauri-plugin-store 实现
 └── tests.rs     # 开发者测试（dt）
 
@@ -68,7 +69,7 @@ src/theme.tsx                                     # 主题系统（亮/暗/跟�
 
 ## 测试要点
 
-- 后端 dt（`cargo test`）：内容指纹匹配各分支、去重置顶（id 保持/时间刷新/不淘汰）、即时淘汰（最旧优先/图片路径收集）、截断（setMaxEntries 语义）、孤儿差集（含 Windows 分隔符 `/` 与 `\` 表示不一致的回归测试）、MemoryStore 流程组合。
-- 前端 vitest：invoke 封装（命令名与参数）、错误码提取、App 渲染（空状态/语言切换，宿主能力 mock）。
-- 需要人工实测（真实剪贴板）：回写是否触发监听、快速连续复制是否丢失中间内容、图片去重置顶的 UI 表现。
+- 后端 dt（`cargo test`）：内容指纹匹配各分支、去重置顶（id 保持/时间刷新/不淘汰）、即时淘汰（最旧优先/图片路径收集/**收藏豁免**）、截断（setMaxEntries 语义）、孤儿差集（含 Windows 分隔符 `/` 与 `\` 表示不一致的回归测试）、MemoryStore 流程组合；0.2.4 新增收藏 dt（展示排序、收藏豁免淘汰、set_favorite 幂等与刷新、旧数据 serde 零迁移）。
+- 前端 vitest：invoke 封装（命令名与参数，含 `set_entry_favorite`）、错误码提取、小屏 `F` 键/星标按钮收藏、App 渲染（空状态/语言切换，宿主能力 mock）。
+- 需要人工实测（真实剪贴板）：回写是否触发监听、快速连续复制是否丢失中间内容、图片去重置顶的 UI 表现、小屏 `F` 键与星标按钮的实操手感。
 - 图片预览依赖 asset 协议（`security.assetProtocol` 已配置且 scope 覆盖图片目录），加载失败回退占位——实机验证时留意。

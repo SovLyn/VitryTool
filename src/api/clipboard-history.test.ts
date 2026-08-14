@@ -8,6 +8,7 @@ import {
   getClipboardHistory,
   getErrorCode,
   getMaxEntries,
+  setEntryFavorite,
   setMaxEntries,
   writeClipboardEntry,
 } from "./clipboard-history";
@@ -41,6 +42,15 @@ describe("clipboard-history api 封装", () => {
 
     await deleteClipboardEntry("id-2");
     expect(mockedInvoke).toHaveBeenCalledWith("delete_clipboard_entry", { id: "id-2" });
+  });
+
+  it("setEntryFavorite 传递 id 与目标状态（幂等显式设置）", async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+    await setEntryFavorite("id-1", true);
+    expect(mockedInvoke).toHaveBeenCalledWith("set_entry_favorite", { id: "id-1", favorited: true });
+
+    await setEntryFavorite("id-1", false);
+    expect(mockedInvoke).toHaveBeenCalledWith("set_entry_favorite", { id: "id-1", favorited: false });
   });
 
   it("clearClipboardHistory / cleanupOrphanImages 无参调用", async () => {

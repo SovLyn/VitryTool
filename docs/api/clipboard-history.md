@@ -6,7 +6,7 @@
 
 ## 1. 概述
 
-持续捕捉用户剪贴板变化，保存为可浏览、可回写的历史记录（文本 / HTML / RTF / 图片 / 文件引用，原始格式保真），受数量上限约束；图片由 tauri-plugin-clipboard-x 落盘于其默认目录，通过即时淘汰 + 定时兜底清理维持"记录 ↔ 文件"一致。
+持续捕捉用户剪贴板变化，保存为可浏览、可回写的历史记录（文本 / HTML / RTF / 图片 / 文件引用，原始格式保真），受数量上限约束；图片由 tauri-plugin-clipboard-x 落盘于其默认目录，通过即时淘汰 + 定时兜底清理维持"记录 ↔ 文件"一致。支持**收藏（Favorite）**：用户标记的条目豁免上限约束、置顶展示、带特殊外观（见 5.8）。
 
 领域术语见 `dev/CONTEXT.md`。架构决策见 `docs/adr/0001-clipboard-capture-via-webview-events.md`。
 
@@ -15,13 +15,14 @@
 | 命令 | 方向 | 说明 |
 | --- | --- | --- |
 | `captureClipboard` | 前端 → 后端 | 监听事件触发：读剪贴板、落盘图片、去重置顶、即时淘汰；无可用内容返回 `null` |
-| `getClipboardHistory` | 前端 → 后端 | 读取全部条目（最新在前），计算图片缺失派生标记 |
+| `getClipboardHistory` | 前端 → 后端 | 读取全部条目（收藏区在前、区内按收藏时间倒序，其后按捕捉时间倒序），计算图片缺失派生标记 |
 | `writeClipboardEntry` | 前端 → 后端 | 回写：按条目原始格式写回系统剪贴板 |
 | `deleteClipboardEntry` | 前端 → 后端 | 删除单条条目并删除其图片文件 |
-| `clearClipboardHistory` | 前端 → 后端 | 清空全部条目并清空图片目录 |
-| `cleanupOrphanImages` | 前端 → 后端 | 定时兜底：扫描图片目录，删除无条目引用的孤儿图片 |
+| `setEntryFavorite` | 前端 → 后端 | 设置/取消收藏（幂等；重复收藏刷新收藏时间，即收藏区重新置顶） |
+| `clearClipboardHistory` | 前端 → 后端 | 清空全部条目（含收藏）并清空图片目录 |
+| `cleanupOrphanImages` | 前端 → 后端 | 定时兜底：扫描图片目录，删除无条目引用的孤儿图片（收藏条目计入引用） |
 | `getMaxEntries` | 前端 → 后端 | 读取当前上限 n |
-| `setMaxEntries` | 前端 → 后端 | 设置上限 n（1~1024），超限立即截断 |
+| `setMaxEntries` | 前端 → 后端 | 设置上限 n（1~1024），超限立即截断（仅淘汰最旧的非收藏条目） |
 
 ## 3. 类型定义
 
@@ -32,6 +33,7 @@
 interface ClipboardEntry {
   id: string;             // 唯一标识（UUID）
   capturedAt: string;     // ISO 8601，捕捉时刻（后端取系统时间）
+  favoritedAt?: string;   // ISO 8601，收藏时刻；存在即收藏（0.2.4 新增，旧数据无此字段 → 未收藏）
   text?: string;          // 纯文本
   html?: string;          // 原始 HTML（保真）
   rtf?: string;           // 原始 RTF（保真）
@@ -56,6 +58,8 @@ interface ClipboardEntry {
 pub struct ClipboardEntry {
     pub id: String,
     pub captured_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favorited_at: Option<String>, // 收藏时刻；存在即收藏
     pub text: Option<String>,
     pub html: Option<String>,
     pub rtf: Option<String>,
@@ -90,9 +94,9 @@ interface SetMaxEntriesReq { maxEntries: number }   // 1~1024
 
 // 响应
 type CaptureClipboardResp = ClipboardEntry | null;  // null = 静默忽略（无可用内容）
-type GetClipboardHistoryResp = ClipboardEntry[];    // 最新在前
+type GetClipboardHistoryResp = ClipboardEntry[];    // 收藏区在前（区内按收藏时间倒序），其后按捕捉时间倒序
 interface CleanupOrphanImagesResp { removed: number }   // 删除的孤儿图片数
-interface SetMaxEntriesResp { maxEntries: number; evicted: number }  // 生效值 + 因截断删除的条目数
+interface SetMaxEntriesResp { maxEntries: number; evicted: number }  // 生效值 + 因截断删除的非收藏条目数
 type GetMaxEntriesResp = number;
 ```
 
@@ -132,8 +136,8 @@ type GetMaxEntriesResp = number;
 1. 依次尝试读取各格式，**逐格式独立容错**（某项失败不影响其他项）：`hasText→readText`、`hasHtml→readHtml`、`hasRtf→readRtf`、`hasImage→readImage(不带 save_path，用插件默认目录)`、`hasFiles→readFiles`。
 2. 全部格式均无 → 返回 `null`（静默忽略，不报错、不产生记录）。
 3. 图片读取成功后，以插件返回的 `{path,size,width,height}` 填充 `image`。
-4. **去重置顶**：以内容指纹查找既有条目——文本按 `text` 内容相等；图片按 `image.path` 相等；无文本的纯富文本按 `html`/`rtf` 相等。命中则更新其 `capturedAt` 并置顶（图片路径相同、文件已存在，插件不会重复落盘）；未命中则插入新条目（`id` 为 UUID）。
-5. **即时淘汰**：若条目数 > n，移除最旧条目；该条目若有 `image.path`，尝试删除对应文件，失败忽略（留给定时兜底）。
+4. **去重置顶**：以内容指纹查找既有条目——文本按 `text` 内容相等；图片按 `image.path` 相等；无文本的纯富文本按 `html`/`rtf` 相等。命中则更新其 `capturedAt` 并置顶（图片路径相同、文件已存在，插件不会重复落盘；收藏状态与 `favoritedAt` 不变，见 5.8）；未命中则插入新条目（`id` 为 UUID，默认为非收藏）。
+5. **即时淘汰**：若非收藏条目数 > n，移除最旧的非收藏条目（收藏条目豁免，见 5.8）；该条目若有 `image.path`，尝试删除对应文件，失败忽略（留给定时兜底）。
 6. 变更后写回 store（`history` 键）。返回新/更新后的条目。
 
 ### 5.3 存储
@@ -147,7 +151,7 @@ type GetMaxEntriesResp = number;
 - 图片本体由插件保存于 `app_data_dir/tauri-plugin-clipboard-x/images`（插件默认路径，`readImage` 不传 `save_path`），文件名为内容哈希 `.png`。
 - **前端显示**：通过 `convertFileSrc(path)` 生成 asset URL，依赖 `tauri.conf.json` 的 `security.assetProtocol`（enable=true，scope 覆盖 `$APPDATA/tauri-plugin-clipboard-x/images/**`）；`<img>` 加载失败（如协议未命中）时前端回退为占位文案，不显示裂图。
 - **即时淘汰**（见 5.2-5）：超限同步删最旧条目及其图片。
-- **定时兜底清理**：前端 `setInterval`（固定 5 分钟，不暴露设置项）→ invoke `cleanupOrphanImages`：扫描图片目录全部 `.png`，收集存活条目 `image.path` 集合，删除差集文件，返回 `removed`。路径比较基于 `Path::components`（Windows 上 `/` 与 `\` 均视为分隔符），对表示差异不敏感。用于弥合即时淘汰失败（文件占用、异常中断等）造成的不一致。
+- **定时兜底清理**：前端 `setInterval`（固定 5 分钟，不暴露设置项）→ invoke `cleanupOrphanImages`：扫描图片目录全部 `.png`，收集存活条目 `image.path` 集合（**含收藏条目**，见 5.8），删除差集文件，返回 `removed`。路径比较基于 `Path::components`（Windows 上 `/` 与 `\` 均视为分隔符），对表示差异不敏感。用于弥合即时淘汰失败（文件占用、异常中断等）造成的不一致。
 - **图片缺失**：`getClipboardHistory` 返回时对每条 `image` 检查文件存在性，生成派生标记 `missing`（不持久化）；条目保留不删除，前端显示占位。
 
 ### 5.5 writeClipboardEntry（回写）
@@ -171,7 +175,20 @@ type GetMaxEntriesResp = number;
 ### 5.7 setMaxEntries / getMaxEntries
 
 - 校验 `1 ≤ n ≤ 1024`，否则 `clipboard.invalid_max_entries`。
-- 保存后若当前条数 > n，**立即截断**（复用即时淘汰逻辑），返回 `{maxEntries, evicted}`。
+- 保存后若非收藏条目数 > n，**立即截断**（复用即时淘汰逻辑，仅淘汰最旧的非收藏条目，收藏全留），返回 `{maxEntries, evicted}`（`evicted` 只统计被淘汰的非收藏条目）。
+
+### 5.8 收藏（Favorite）
+
+- **语义**：用户主动标记为保留的条目，豁免自动淘汰、置顶展示、带特殊外观。收藏状态持久化于条目字段 `favoritedAt`（ISO 8601 收藏时刻），存在即收藏；旧数据无此字段（serde `default` → 未收藏），零迁移。
+- **排序**：`getClipboardHistory` 返回时收藏区在前（区内按 `favoritedAt` 倒序，最近收藏最前），其后为普通条目（按 `capturedAt` 倒序）。排序由后端 `service::sort_for_display` 完成（稳定排序），主窗口与小屏共用同一结果，两窗天然一致。
+- **上限豁免**：收藏条目不纳入 `maxEntries` 计数，永不因上限被淘汰；`evict_over_limit` 只淘汰最旧的非收藏条目。
+- **取消收藏不触发淘汰**：仅清空 `favoritedAt`；若非收藏数因此超限，容忍短暂超限，待下一次 `captureClipboard` / `setMaxEntries` 时按「最旧非收藏」归位（避免"刚取消就被删"的副作用）。
+- **重复收藏**：`setEntryFavorite(id, true)` 对已收藏条目刷新 `favoritedAt = now`（收藏区重新置顶），命令语义为「设置即生效」，幂等。
+- **去重置顶**：命中既有条目只刷新 `capturedAt`，收藏状态与 `favoritedAt` 不变。
+- **主动删除 / 清空**：收藏不豁免显式单条删除与清空全部（`clearClipboardHistory` 连收藏一并清除）。
+- **孤儿判定**：收藏条目计入存活条目引用集合——其图片文件在条目存活期间不会被 `cleanupOrphanImages` 判为孤儿。
+- **跨窗同步**：收藏变更由发起窗口 `emit` 既有 `clipboard-history://updated` 事件，两窗经既有刷新路径同步（小屏激活期间保持当前选中条目）。
+- **并发**：`setEntryFavorite` 的「读 → 改 → 写」与 `capture_clipboard` 同持 `CAPTURE_LOCK`，互斥串行化，防丢失更新。
 
 ## 6. 破坏性影响
 

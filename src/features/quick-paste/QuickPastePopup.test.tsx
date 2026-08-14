@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, cleanup } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import {
   captureClipboard,
   getClipboardHistory,
+  setEntryFavorite,
   writeClipboardEntry,
 } from "../../api/clipboard-history";
 import { quickPasteClose, quickPasteReady } from "../../api/quick-paste";
@@ -12,7 +13,7 @@ import { CLIPBOARD_UPDATED_EVENT } from "../clipboard-history/listener";
 import { clampIndex, QuickPastePopup, type SessionPayload } from "./QuickPastePopup";
 
 // ---- mocks ----
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(), emit: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (p: string) => `asset://${p}`,
 }));
@@ -23,6 +24,7 @@ vi.mock("../../api/clipboard-history", async (importOriginal) => {
     captureClipboard: vi.fn(),
     getClipboardHistory: vi.fn(),
     writeClipboardEntry: vi.fn(),
+    setEntryFavorite: vi.fn(),
   };
 });
 vi.mock("../../api/quick-paste", () => ({
@@ -31,9 +33,11 @@ vi.mock("../../api/quick-paste", () => ({
 }));
 
 const mockedListen = vi.mocked(listen);
+const mockedEmit = vi.mocked(emit);
 const mockedCapture = vi.mocked(captureClipboard);
 const mockedGetHistory = vi.mocked(getClipboardHistory);
 const mockedWrite = vi.mocked(writeClipboardEntry);
+const mockedSetFavorite = vi.mocked(setEntryFavorite);
 const mockedClose = vi.mocked(quickPasteClose);
 const mockedReady = vi.mocked(quickPasteReady);
 
@@ -99,6 +103,9 @@ describe("QuickPastePopup 快速粘贴小屏", () => {
     mockedClose.mockResolvedValue(undefined);
     mockedWrite.mockReset();
     mockedWrite.mockResolvedValue(undefined);
+    mockedSetFavorite.mockReset();
+    mockedSetFavorite.mockResolvedValue(undefined);
+    mockedEmit.mockReset();
     mockedCapture.mockReset();
     mockedCapture.mockResolvedValue(null);
     mockedGetHistory.mockReset();
@@ -235,5 +242,69 @@ describe("QuickPastePopup 快速粘贴小屏", () => {
 
     expect(mockedWrite).not.toHaveBeenCalled();
     expect(mockedClose).toHaveBeenCalledWith(1);
+  });
+
+  it("F 键收藏/取消收藏选中条目并广播 updated 事件", async () => {
+    await renderPopup();
+    fireShow(1);
+    await flush();
+
+    // 初始未收藏 → F → setEntryFavorite(id, true) + emit（跨窗同步）
+    fireEvent.keyDown(window, { key: "f" });
+    await flush();
+    expect(mockedSetFavorite).toHaveBeenCalledWith("e1", true);
+    expect(mockedEmit).toHaveBeenCalledWith(CLIPBOARD_UPDATED_EVENT, { id: "e1" });
+  });
+
+  it("已收藏条目星标显示实心态，F 再按取消收藏", async () => {
+    mockedGetHistory.mockResolvedValue([
+      { ...TEXT_ENTRY, favoritedAt: "2026-08-13T02:00:00Z" },
+      IMG_ENTRY,
+    ]);
+    await renderPopup();
+    fireShow(1);
+    await flush();
+
+    const star = document.querySelector(".qp-star")!;
+    expect(star.classList.contains("favorited")).toBe(true);
+    expect(star.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.keyDown(window, { key: "F" });
+    await flush();
+    expect(mockedSetFavorite).toHaveBeenCalledWith("e1", false);
+  });
+
+  it("点击星标按钮切换收藏（不触发回写）", async () => {
+    await renderPopup();
+    fireShow(1);
+    await flush();
+
+    const star = document.querySelector(".qp-star")!;
+    fireEvent.click(star);
+    await flush();
+
+    expect(mockedSetFavorite).toHaveBeenCalledWith("e1", true);
+    expect(mockedEmit).toHaveBeenCalledWith(CLIPBOARD_UPDATED_EVENT, { id: "e1" });
+    expect(mockedWrite).not.toHaveBeenCalled();
+  });
+
+  it("收藏变更刷新后保持选中条目", async () => {
+    await renderPopup();
+    fireShow(1);
+    await flush();
+
+    // 模拟：收藏 e1 后列表刷新为收藏区在前
+    mockedGetHistory.mockResolvedValue([
+      { ...TEXT_ENTRY, favoritedAt: "2026-08-13T02:00:00Z" },
+      IMG_ENTRY,
+    ]);
+    handlers.get(CLIPBOARD_UPDATED_EVENT)?.({
+      payload: { id: "e1" } as unknown as SessionPayload,
+    });
+    await flush();
+
+    const items = screen.getAllByRole("listitem");
+    expect(items[0].classList.contains("active")).toBe(true);
+    expect(mockedGetHistory.mock.calls.length).toBe(2);
   });
 });

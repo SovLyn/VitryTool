@@ -9,14 +9,16 @@
 
 import { createEffect, createSignal, For, onCleanup, onMount } from "solid-js";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import {
   captureClipboard,
   getClipboardHistory,
   getErrorCode,
+  setEntryFavorite,
   writeClipboardEntry,
   type ClipboardEntry,
 } from "../../api/clipboard-history";
+import { StarIcon } from "../../components/StarIcon";
 import { quickPasteClose, quickPasteReady } from "../../api/quick-paste";
 import { CLIPBOARD_UPDATED_EVENT } from "../clipboard-history/listener";
 import { useI18n } from "../../i18n";
@@ -40,11 +42,16 @@ function entryKind(entry: ClipboardEntry): "text" | "image" | "html" | "rtf" | "
   return "text";
 }
 
-/** 单条预览（popup 内紧凑版）：图片缩略图 / 单行文本截断。 */
-function PopupItem(props: { entry: ClipboardEntry; active: boolean }) {
+/** 单条预览（popup 内紧凑版）：图片缩略图 / 单行文本截断；星标按钮切换收藏（契约 5.8）。 */
+function PopupItem(props: {
+  entry: ClipboardEntry;
+  active: boolean;
+  onToggleFavorite: (id: string, favorited: boolean) => void;
+}) {
   const { t } = useI18n();
   const kind = entryKind(props.entry);
   const missing = props.entry.image?.missing ?? false;
+  const favorited = !!props.entry.favoritedAt;
 
   let preview: string | undefined;
   if (kind === "text") preview = props.entry.text;
@@ -60,6 +67,18 @@ function PopupItem(props: { entry: ClipboardEntry; active: boolean }) {
       )}
       {kind === "image" && missing && <span class="qp-item-preview">{t("clipboard.missingImage")}</span>}
       {preview !== undefined && <span class="qp-item-preview">{preview}</span>}
+      <button
+        type="button"
+        class={favorited ? "qp-star favorited" : "qp-star"}
+        aria-label={favorited ? t("clipboard.unfavorite") : t("clipboard.favorite")}
+        aria-pressed={favorited}
+        onClick={(e) => {
+          e.stopPropagation();
+          props.onToggleFavorite(props.entry.id, !favorited);
+        }}
+      >
+        <StarIcon filled={favorited} />
+      </button>
       <span class="qp-item-kind">{t(`clipboard.kind.${kind}`)}</span>
     </li>
   );
@@ -129,6 +148,16 @@ export function QuickPastePopup() {
     await closeSession();
   }
 
+  /** 收藏/取消收藏选中条目（F 键或星标按钮触发）；emit 后经既有事件刷新，保持当前选中。 */
+  async function handleToggleFavorite(id: string, favorited: boolean) {
+    try {
+      await setEntryFavorite(id, favorited);
+      void emit(CLIPBOARD_UPDATED_EVENT, { id });
+    } catch (err) {
+      setError(getErrorCode(err) || String(err));
+    }
+  }
+
   async function closeSession() {
     try {
       await quickPasteClose(sessionRef);
@@ -162,7 +191,11 @@ export function QuickPastePopup() {
         return;
       }
       if (count() === 0) return;
-      if (e.key === "ArrowDown") setSelected((i) => clampIndex(i + 1, count()));
+      if (e.key === "f" || e.key === "F") {
+        // F：收藏/取消收藏选中条目（契约 5.8）
+        const entry = entries()[currentIndex()];
+        if (entry) void handleToggleFavorite(entry.id, !entry.favoritedAt);
+      } else if (e.key === "ArrowDown") setSelected((i) => clampIndex(i + 1, count()));
       else if (e.key === "ArrowUp") setSelected((i) => clampIndex(i - 1, count()));
     };
     window.addEventListener("keydown", onKeyDown);
@@ -198,7 +231,13 @@ export function QuickPastePopup() {
         {error() && <p class="message error">{t(error()) || error()}</p>}
         <ul ref={listEl} class="qp-list">
           <For each={entries()}>
-            {(entry, i) => <PopupItem entry={entry} active={i() === currentIndex()} />}
+            {(entry, i) => (
+              <PopupItem
+                entry={entry}
+                active={i() === currentIndex()}
+                onToggleFavorite={(id, fav) => void handleToggleFavorite(id, fav)}
+              />
+            )}
           </For>
         </ul>
         {count() === 0 && !error() && <p class="qp-empty">{t("clipboard.empty")}</p>}
