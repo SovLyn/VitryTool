@@ -36,6 +36,14 @@ pub struct SessionPayload {
     pub session: u32,
 }
 
+/// 全局快捷键能力检测响应（契约 5.8）：`supported=false` 表示当前环境无法
+/// 使用全局快捷键（如 Linux Wayland 会话），设置页应隐藏录制入口并显示警告。
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HotkeyCapabilityResp {
+    pub supported: bool,
+}
+
 /// 快速粘贴运行状态（功能私有，挂载于 `init`）。
 #[derive(Debug, Default)]
 pub struct QuickPasteState {
@@ -97,6 +105,20 @@ pub fn get_hotkey(app: AppHandle) -> Result<Option<String>, ApiError> {
     Ok(hotkey)
 }
 
+/// 读取当前环境是否支持全局快捷键（契约 5.8）。
+///
+/// `supported=false` 时设置页不提供快捷键设置，改为显示平台警告。
+#[tauri::command]
+pub fn get_hotkey_capability() -> Result<HotkeyCapabilityResp, ApiError> {
+    let supported = super::service::global_shortcut_supported(
+        std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+        std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
+        std::env::var("GDK_BACKEND").ok().as_deref(),
+    );
+    log::debug!("get_hotkey_capability: supported={supported}");
+    Ok(HotkeyCapabilityResp { supported })
+}
+
 /// 设置 / 清除全局快捷键（空串 = 清除），并即时重注册（契约 5.2）。
 ///
 /// 注册失败时**不持久化**，并回滚恢复旧注册。
@@ -154,7 +176,9 @@ pub fn quick_paste_ready(app: AppHandle) -> Result<(), ApiError> {
         log::debug!("quick_paste_ready: flush pending show");
         if let Some(popup) = app.get_webview_window(POPUP_LABEL) {
             let session = state.session.load(Ordering::SeqCst);
-            let _ = popup.emit(EVENT_SHOW, SessionPayload { session });
+            if let Err(e) = popup.emit(EVENT_SHOW, SessionPayload { session }) {
+                log::warn!("quick-paste: emit show failed: {e}");
+            }
         }
     }
     Ok(())
@@ -209,12 +233,18 @@ fn show_popup(app: &AppHandle) {
     };
 
     position_near_cursor(&popup);
-    let _ = popup.show();
-    let _ = popup.set_focus();
+    if let Err(e) = popup.show() {
+        log::error!("quick-paste: popup.show() failed: {e}");
+    }
+    if let Err(e) = popup.set_focus() {
+        log::warn!("quick-paste: popup.set_focus() failed: {e}");
+    }
 
     if state.popup_ready.load(Ordering::SeqCst) {
         state.pending_show.store(false, Ordering::SeqCst);
-        let _ = popup.emit(EVENT_SHOW, SessionPayload { session });
+        if let Err(e) = popup.emit(EVENT_SHOW, SessionPayload { session }) {
+            log::warn!("quick-paste: emit show failed: {e}");
+        }
     } else {
         log::debug!("quick-paste: popup not ready yet, show pending");
     }
@@ -236,7 +266,9 @@ fn release_popup(app: &AppHandle) {
 
     let session = state.session.load(Ordering::SeqCst);
     if state.popup_ready.load(Ordering::SeqCst) {
-        let _ = popup.emit(EVENT_RELEASE, SessionPayload { session });
+        if let Err(e) = popup.emit(EVENT_RELEASE, SessionPayload { session }) {
+            log::warn!("quick-paste: emit release failed: {e}");
+        }
         log::debug!("quick-paste: released, session {session}, wait for frontend");
     } else {
         // popup 未加载完成：无法回写，直接复位隐藏
@@ -271,27 +303,44 @@ fn force_hide_if_active(app: &AppHandle, session: u32) {
 
 /// 将小屏定位到鼠标光标右下方，并 clamp 在当前显示器物理边界内（契约 5.4）。
 fn position_near_cursor(popup: &WebviewWindow) {
-    let Ok(cursor) = popup.cursor_position() else {
-        return;
+    let cursor = match popup.cursor_position() {
+        Ok(cursor) => cursor,
+        Err(e) => {
+            // Wayland 等环境可能无全局指针查询能力：记日志便于定位（不影响 show 本身）
+            log::warn!("quick-paste: cursor_position failed: {e}");
+            return;
+        }
     };
-    let Ok(size) = popup.outer_size() else {
-        return;
+    let size = match popup.outer_size() {
+        Ok(size) => size,
+        Err(e) => {
+            log::warn!("quick-paste: outer_size failed: {e}");
+            return;
+        }
     };
 
     const MARGIN: f64 = 24.0;
     let mut x = cursor.x + MARGIN;
     let mut y = cursor.y + MARGIN;
 
-    if let Ok(Some(monitor)) = popup.monitor_from_point(cursor.x, cursor.y) {
-        let mpos = monitor.position();
-        let msize = monitor.size();
-        let max_x = mpos.x + msize.width as i32 - size.width as i32;
-        let max_y = mpos.y + msize.height as i32 - size.height as i32;
-        x = x.clamp(mpos.x as f64, max_x.max(mpos.x) as f64);
-        y = y.clamp(mpos.y as f64, max_y.max(mpos.y) as f64);
+    match popup.monitor_from_point(cursor.x, cursor.y) {
+        Ok(Some(monitor)) => {
+            let mpos = monitor.position();
+            let msize = monitor.size();
+            let max_x = mpos.x + msize.width as i32 - size.width as i32;
+            let max_y = mpos.y + msize.height as i32 - size.height as i32;
+            x = x.clamp(mpos.x as f64, max_x.max(mpos.x) as f64);
+            y = y.clamp(mpos.y as f64, max_y.max(mpos.y) as f64);
+        }
+        Ok(None) => log::debug!("quick-paste: no monitor found at cursor ({x:.0}, {y:.0})"),
+        Err(e) => log::warn!("quick-paste: monitor_from_point failed: {e}"),
     }
 
-    let _ = popup.set_position(Position::Physical(PhysicalPosition::new(x as i32, y as i32)));
+    if let Err(e) = popup.set_position(Position::Physical(PhysicalPosition::new(
+        x as i32, y as i32,
+    ))) {
+        log::warn!("quick-paste: set_position failed: {e}");
+    }
     log::trace!("quick-paste: popup positioned at ({x:.0}, {y:.0})");
 }
 

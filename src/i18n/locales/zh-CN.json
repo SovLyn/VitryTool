@@ -38,7 +38,9 @@
     "popupHint": "滚轮 / ↑↓ 选择 · 松开快捷键粘贴 · Esc 取消",
     "invalid_hotkey": "快捷键无效：需包含至少一个 Ctrl / Alt / Win 修饰键",
     "register_failed": "快捷键注册失败，可能已被其他程序占用",
-    "storage_error": "快捷键设置保存失败"
+    "storage_error": "快捷键设置保存失败",
+    "unsupportedTitle": "全局快捷键在当前系统不可用",
+    "unsupportedDesc": "检测到 Wayland 会话：全局快捷键依赖 X11，按下不会触发。请切换到 X11 会话，或设置 GDK_BACKEND=x11 环境变量后重启应用。"
   },
   "settings": {
     "title": "设置",

@@ -172,6 +172,33 @@ pub fn normalize_hotkey(input: &str) -> Result<String, HotkeyParseError> {
     Ok(parts.join("+"))
 }
 
+/// 判断当前环境是否支持全局快捷键（契约 5.8）。
+///
+/// Linux 下 `tauri-plugin-global-shortcut` 底层 `global-hotkey` 仅实现 X11 后端
+/// （`XGrabKey`）：Wayland 会话中 GTK 窗口为原生 Wayland，键盘事件不经过 X server，
+/// 快捷键注册「成功」但按下永不触发。仅当 GTK 显式强制 X11 后端（`GDK_BACKEND`
+/// 含 `x11`，经 XWayland 运行）时才可能生效，故此时判定为支持。
+///
+/// 参数为注入的环境变量值（`XDG_SESSION_TYPE` / `WAYLAND_DISPLAY` / `GDK_BACKEND`），
+/// 便于脱离 Tauri 运行时单元测试。
+pub fn global_shortcut_supported(
+    session_type: Option<&str>,
+    wayland_display: Option<&str>,
+    gdk_backend: Option<&str>,
+) -> bool {
+    let session = session_type.unwrap_or("").to_ascii_lowercase();
+    // Wayland 会话：XDG_SESSION_TYPE=wayland，或该变量缺失但存在 WAYLAND_DISPLAY
+    let on_wayland = session == "wayland" || (session.is_empty() && wayland_display.is_some());
+    if !on_wayland {
+        return true;
+    }
+    // Wayland 会话下仅当显式强制 X11 后端（GDK_BACKEND 含 x11，走 XWayland）才可能生效
+    gdk_backend
+        .unwrap_or("")
+        .split([',', ' '])
+        .any(|p| p.eq_ignore_ascii_case("x11"))
+}
+
 #[cfg(test)]
 mod unit {
     use super::*;
@@ -241,5 +268,38 @@ mod unit {
         assert_eq!(normalize_hotkey("CommandOrControl+Option+Super+T").unwrap(), "CommandOrControl+Alt+Super+T");
         assert_eq!(normalize_hotkey("Cmd+Enter").unwrap(), "Super+Enter");
         assert_eq!(normalize_hotkey("Ctrl+Down").unwrap(), "CommandOrControl+ArrowDown");
+    }
+
+    #[test]
+    fn shortcut_supported_on_non_wayland_sessions() {
+        // X11 会话
+        assert!(global_shortcut_supported(Some("x11"), Some("wayland-0"), None));
+        // 会话变量缺失且无 WAYLAND_DISPLAY（Windows / macOS / 未知环境）
+        assert!(global_shortcut_supported(None, None, None));
+        // 大小写不敏感
+        assert!(global_shortcut_supported(Some("X11"), Some("wayland-0"), None));
+    }
+
+    #[test]
+    fn shortcut_unsupported_on_wayland_by_default() {
+        // 标准 Wayland 会话（无 GDK_BACKEND）：不支持
+        assert!(!global_shortcut_supported(Some("wayland"), Some("wayland-0"), None));
+        // 显式 wayland 后端
+        assert!(!global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some("wayland")));
+        // 会话变量缺失但存在 WAYLAND_DISPLAY
+        assert!(!global_shortcut_supported(None, Some("wayland-0"), None));
+        // 空会话串 + WAYLAND_DISPLAY
+        assert!(!global_shortcut_supported(Some(""), Some("wayland-0"), None));
+    }
+
+    #[test]
+    fn shortcut_supported_on_wayland_with_forced_x11_backend() {
+        // GDK_BACKEND=x11（GTK 走 XWayland）：判定可能生效
+        assert!(global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some("x11")));
+        // 多后端列表中含 x11
+        assert!(global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some("x11,wayland")));
+        assert!(global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some(" wayland , x11 ")));
+        // 大小写不敏感
+        assert!(global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some("X11")));
     }
 }

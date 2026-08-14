@@ -322,6 +322,12 @@ button:active {
   border: 1px solid rgba(48, 209, 88, 0.25);
 }
 
+.message.warning {
+  background: rgba(255, 159, 10, 0.14);
+  color: #ff9f0a;
+  border: 1px solid rgba(255, 159, 10, 0.3);
+}
+
 /* ---- 设置页 ---- */
 .settings-page {
   display: flex;

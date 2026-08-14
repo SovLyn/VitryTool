@@ -2,6 +2,19 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
+## [0.2.3] - 2026-08-14
+
+### 新增
+
+- **全局快捷键平台能力检测**（契约 `docs/api/quick-paste.md` 5.8）：新增 `getHotkeyCapability` 命令，检测当前环境是否支持全局快捷键。Linux 下 `global-hotkey` 仅实现 X11 后端（`XGrabKey`）——Wayland 会话中窗口为原生 Wayland，键盘事件不经过 X server，快捷键注册「成功」但按下永不触发（实测确认）。
+- **设置页平台警告**：能力检测 `supported=false`（如 Linux Wayland 会话）时，快捷键设置区不再提供录制入口，改为显示警告（提示切换 X11 会话或设置 `GDK_BACKEND=x11`），避免用户配置一个永远不生效的快捷键；文案中英文双语（`quickPaste.unsupportedTitle` / `unsupportedDesc`）。
+- 后端新增可测纯函数 `service::global_shortcut_supported`（注入环境变量，dt 覆盖 Wayland / X11 / GDK_BACKEND 强制 X11 等分支）。
+
+### 变更
+
+- 后端日志补全：`popup.show()` / `set_focus()` / `cursor_position()` / `outer_size()` / `monitor_from_point()` / `set_position()` / 事件 `emit` 失败不再被吞掉，均记录错误日志（此前 `let _` 静默丢弃，掩盖跨平台窗口问题）。
+- 版本 0.2.2 → 0.2.3（三处同步）。
+
 ## [0.2.2] - 2026-08-13
 
 ### 修复

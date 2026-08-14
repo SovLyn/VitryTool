@@ -45,6 +45,7 @@ pub fn run() {
             // 快速粘贴（features/quick_paste）
             features::quick_paste::get_hotkey,
             features::quick_paste::set_hotkey,
+            features::quick_paste::get_hotkey_capability,
             features::quick_paste::quick_paste_ready,
             features::quick_paste::quick_paste_close,
         ])

@@ -26,3 +26,13 @@ export function quickPasteReady(): Promise<void> {
 export function quickPasteClose(sessionId: number): Promise<void> {
   return invoke<void>("quick_paste_close", { sessionId });
 }
+
+/** 全局快捷键能力检测结果：`supported=false` 表示当前环境无法使用全局快捷键（如 Linux Wayland 会话）。 */
+export interface HotkeyCapability {
+  supported: boolean;
+}
+
+/** 读取当前环境是否支持全局快捷键（契约 `docs/api/quick-paste.md` 5.8）。 */
+export function getHotkeyCapability(): Promise<HotkeyCapability> {
+  return invoke<HotkeyCapability>("get_hotkey_capability");
+}

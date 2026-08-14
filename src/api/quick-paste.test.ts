@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { getHotkey, quickPasteClose, quickPasteReady, setHotkey } from "./quick-paste";
+import {
+  getHotkey,
+  getHotkeyCapability,
+  quickPasteClose,
+  quickPasteReady,
+  setHotkey,
+} from "./quick-paste";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -36,5 +42,14 @@ describe("quick-paste api 封装", () => {
 
     await quickPasteClose(3);
     expect(mockedInvoke).toHaveBeenCalledWith("quick_paste_close", { sessionId: 3 });
+  });
+
+  it("getHotkeyCapability 调用 get_hotkey_capability 并透传 supported", async () => {
+    mockedInvoke.mockResolvedValueOnce({ supported: false });
+    expect(await getHotkeyCapability()).toEqual({ supported: false });
+    expect(mockedInvoke).toHaveBeenCalledWith("get_hotkey_capability");
+
+    mockedInvoke.mockResolvedValueOnce({ supported: true });
+    expect(await getHotkeyCapability()).toEqual({ supported: true });
   });
 });

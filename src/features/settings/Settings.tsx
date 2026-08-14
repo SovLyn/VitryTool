@@ -6,13 +6,13 @@
 //! - 快捷键走 `HotkeyRecorder` + 后端 `setHotkey`（全局注册 + 持久化，契约见
 //!   `docs/api/quick-paste.md`）；保存成功提示、失败回滚显示。
 
-import { createSignal, For, onMount } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import {
   getErrorCode,
   getMaxEntries,
   setMaxEntries,
 } from "../../api/clipboard-history";
-import { getHotkey, setHotkey } from "../../api/quick-paste";
+import { getHotkey, getHotkeyCapability, setHotkey } from "../../api/quick-paste";
 import { locales, useI18n, type Locale } from "../../i18n";
 import { useTheme, type Theme } from "../../theme";
 import { HotkeyRecorder } from "../quick-paste/HotkeyRecorder";
@@ -34,8 +34,15 @@ export function Settings() {
   const [hotkey, setHotkeyValue] = createSignal("");
   const [error, setError] = createSignal("");
   const [notice, setNotice] = createSignal("");
+  /** 全局快捷键能力检测：null=加载中；false=当前环境不支持（隐藏设置入口、显示警告）。 */
+  const [hotkeySupported, setHotkeySupported] = createSignal<boolean | null>(null);
 
   onMount(() => {
+    // 检测失败按「支持」处理（fail-open，不打扰正常环境用户）
+    void getHotkeyCapability()
+      .then((c) => setHotkeySupported(c.supported))
+      .catch(() => setHotkeySupported(true));
+
     void getMaxEntries()
       .then((n) => {
         setMaxInput(n);
@@ -150,13 +157,25 @@ export function Settings() {
 
       <div class="settings-group">
         <div class="settings-group-title">{t("quickPaste.title")}</div>
-        <div class="settings-row">
-          <div>
-            <div class="settings-label">{t("quickPaste.hotkey")}</div>
-            <div class="settings-desc">{t("quickPaste.hotkeyDesc")}</div>
+        <Show
+          when={hotkeySupported() !== false}
+          fallback={
+            <div class="settings-row">
+              <div class="message warning">
+                <div class="settings-label">{t("quickPaste.unsupportedTitle")}</div>
+                <div class="settings-desc">{t("quickPaste.unsupportedDesc")}</div>
+              </div>
+            </div>
+          }
+        >
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">{t("quickPaste.hotkey")}</div>
+              <div class="settings-desc">{t("quickPaste.hotkeyDesc")}</div>
+            </div>
+            <HotkeyRecorder value={hotkey()} onChange={(hk) => void saveHotkey(hk)} />
           </div>
-          <HotkeyRecorder value={hotkey()} onChange={(hk) => void saveHotkey(hk)} />
-        </div>
+        </Show>
       </div>
 
       {error() && (

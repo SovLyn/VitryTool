@@ -2,7 +2,7 @@
 
 - 状态：`已实现`
 - 关联功能文档：[docs/features/quick-paste.md](../features/quick-paste.md)
-- 版本影响：`minor`（0.1.2 → 0.2.0，已签发）
+- 版本影响：`minor`（0.1.2 → 0.2.0，已签发）；`patch`（0.2.2 → 0.2.3，待签发：平台能力检测 + 设置页警告）
 
 ## 1. 概述
 
@@ -22,6 +22,7 @@
 | `setHotkey` | 前端 → 后端 | 设置 / 清除全局快捷键并即时重注册（空串 = 清除） |
 | `quickPasteReady` | 前端 → 后端 | popup 前端加载完成握手：若已有挂起的按下事件则补发 `show` |
 | `quickPasteClose` | 前端 → 后端 | popup 前端完成回写（或取消）后请求关闭：隐藏窗口、复位状态 |
+| `getHotkeyCapability` | 前端 → 后端 | 检测当前环境是否支持全局快捷键（如 Linux Wayland 会话不支持）；`supported=false` 时设置页隐藏录制入口并显示警告（见 5.8） |
 
 事件（后端 → popup 前端）：
 
@@ -52,6 +53,9 @@ pub struct SetHotkeyReq { pub hotkey: String }
 ```ts
 type GetHotkeyResp = string | null; // null = 未设置
 // setHotkey：成功返回 ()，失败抛 ApiError
+
+// 能力检测（5.8）：supported=false 表示当前环境无法使用全局快捷键
+type HotkeyCapabilityResp = { supported: boolean };
 ```
 
 ## 4. 错误码
@@ -136,6 +140,16 @@ type GetHotkeyResp = string | null; // null = 未设置
 - 复用 `getClipboardHistory`（最新在前）与 `writeClipboardEntry`（按原始格式回写）两个既有命令，**不新增剪贴板读写逻辑**。
 - 回写不触发监听（既有经验，契约 5.5）；若触发则去重置顶自然置顶，无害（实测确认）。
 
+### 5.8 平台能力检测（全局快捷键可用性）
+
+- Linux 下 `tauri-plugin-global-shortcut` 底层 `global-hotkey` 仅实现 **X11 后端**（`XGrabKey`）：**Wayland 会话**中窗口为原生 Wayland，键盘事件不经过 X server，快捷键注册「成功」（XWayland 存在时）但按下**永不触发**。
+- `getHotkeyCapability` 返回 `supported`：前端据此决定设置页展示录制入口还是警告（`supported=false` 时**不提供设置**，避免用户配置一个永远不生效的快捷键）。
+- 判定逻辑（后端 `service::global_shortcut_supported`，可测纯函数）：
+  - 非 Linux 或 X11 会话（`XDG_SESSION_TYPE` 为 `x11`，或缺失且无 `WAYLAND_DISPLAY`）→ `supported = true`；
+  - Wayland 会话（`XDG_SESSION_TYPE=wayland`，或缺失但有 `WAYLAND_DISPLAY`）→ 默认 `supported = false`；
+  - 例外：`GDK_BACKEND` 显式包含 `x11`（GTK 走 XWayland）时判定为可能生效 → `supported = true`。
+- 已知限制：Wayland 下即使 `GDK_BACKEND=x11` 也依赖合成器对 XWayland 抓键的支持，不作为保证；警告文案据此提示用户切换 X11 会话。
+
 ## 6. 破坏性影响
 
 - 新功能域，无既有接口破坏。
@@ -143,6 +157,7 @@ type GetHotkeyResp = string | null; // null = 未设置
 - 前端无新 npm 依赖（popup 与主窗口共用既有 `@tauri-apps/api`）。
 - capabilities 新增 `quick-paste`（`core:default`）；`tauri.conf.json` 新增 `quick-paste` 窗口；`vite.config.ts` 增加 `popup.html` 多入口。
 - 版本递增 `minor` → 0.2.0（三处同步 + CHANGELOG）。
+- 0.2.3（三处同步 + CHANGELOG）：新增 `getHotkeyCapability` 命令与设置页平台警告，不破坏既有接口。
 
 ## 7. 未决问题
 
