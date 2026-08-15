@@ -57,5 +57,31 @@
     "clipboard": "剪贴板",
     "maxEntries": "最大条数",
     "maxEntriesDesc": "历史记录保留上限（1–1024）"
+  },
+  "lanSync": {
+    "title": "收件箱",
+    "empty": "暂无收件内容。开启接收后，其他终端复制的内容会出现在这里。",
+    "emptyReceiveOff": "接收已关闭，其他终端的内容不会出现在这里。",
+    "clear": "清空全部",
+    "clearConfirm": "确定清空收件箱？",
+    "delete": "删除",
+    "writtenBack": "已写回剪贴板",
+    "items": "{count} 条",
+    "settingsTitle": "局域网同步",
+    "broadcast": "广播",
+    "broadcastDesc": "本机复制的新内容自动广播到局域网其他终端",
+    "receive": "接收",
+    "receiveDesc": "接收其他终端的广播到收件箱（不自动写回剪贴板）",
+    "terminalName": "终端名",
+    "terminalNameDesc": "显示在他人收件箱中的名称（默认主机名，≤ 32 字符）",
+    "saved": "已保存",
+    "nodeOffline": "同步节点未运行",
+    "peersOnline": "在线终端：{count}",
+    "storage_error": "收件箱读写失败",
+    "entry_not_found": "条目不存在或已被淘汰",
+    "invalid_name": "终端名不能为空且不超过 32 字符",
+    "node_not_running": "同步节点未运行，请重启应用",
+    "peer_node_error": "同步节点异常，请查看日志",
+    "too_large": "内容过大，未广播"
   }
 }

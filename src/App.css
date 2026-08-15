@@ -465,8 +465,7 @@ button:active {
   border-color: var(--accent);
 }
 
-/* ---- 快捷键录制（HotkeyRecorder） ---- */
-.hotkey-recorder {
+/* ---- 快捷键录制（HotkeyRecorder） ---- */.hotkey-recorder {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -533,4 +532,140 @@ button:active {
   .settings-group {
     border: 1px solid var(--border);
   }
+}
+
+/* ==========================================================================
+   lan-sync 收件箱（0.2.5）
+   ========================================================================== */
+
+/* 侧栏徽标（未读计数，F2） */
+.nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nav-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* 收件箱列表 */
+.inbox-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 节点分组（F4）：粘性磨砂标题 + 卡片列表 */
+.inbox-node-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 2px;
+  background: var(--surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.inbox-node-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.inbox-node-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+.inbox-node-count {
+  color: var(--text-secondary);
+}
+
+.inbox-entry-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 新到达条目：一次主题色脉冲（F2/F5：克制，不抢注意力） */
+@keyframes inbox-flash {
+  0% {
+    background: rgba(0, 113, 227, 0.18);
+    border-color: var(--accent);
+  }
+  100% {
+    background: var(--surface);
+    border-color: var(--hairline);
+  }
+}
+
+.entry-card.new-flash {
+  animation: inbox-flash 900ms ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entry-card.new-flash {
+    animation: none;
+  }
+}
+
+/* ---- iOS 风格开关（设置页 lan-sync，F7） ---- */
+.switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border-radius: 13px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+  flex-shrink: 0;
+}
+
+.switch.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch:active .switch-knob {
+  width: 22px; /* 按压时旋钮轻微变宽（apple 手感） */
+}
+
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1), width 0.18s ease;
+}
+
+.switch.on .switch-knob {
+  transform: translateX(18px);
 }

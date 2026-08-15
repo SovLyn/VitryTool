@@ -9,10 +9,11 @@ pub mod core;
 mod features;
 
 use core::state::AppState;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(core::log::plugin())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_x::init())
@@ -24,10 +25,20 @@ pub fn run() {
                 .with_denylist(&[features::quick_paste::POPUP_LABEL])
                 .build(),
         )
+        // 单实例（lan-sync 前提：一台机器一个终端，见契约 docs/api/lan-sync.md 5.1）；
+        // 第二实例启动时唤出主窗口
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(AppState::default())
         .setup(|app| {
             core::tray::init(app)?;
             features::quick_paste::init(app)?;
+            features::lan_sync::init_node(app)?;
             Ok(())
         })
         // 托盘常驻：任何窗口的「关闭」都改为隐藏（契约 5.5）
@@ -49,7 +60,31 @@ pub fn run() {
             features::quick_paste::get_hotkey_capability,
             features::quick_paste::quick_paste_ready,
             features::quick_paste::quick_paste_close,
+            // 局域网同步（features/lan_sync）
+            features::lan_sync::get_lan_sync_status,
+            features::lan_sync::set_lan_sync_broadcast,
+            features::lan_sync::set_lan_sync_receive,
+            features::lan_sync::set_lan_sync_terminal_name,
+            features::lan_sync::get_lan_inbox,
+            features::lan_sync::write_lan_inbox_entry,
+            features::lan_sync::delete_lan_inbox_entry,
+            features::lan_sync::clear_lan_inbox,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // 退出清理：停止 libp2p 节点线程（RunEvent::Exit）
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            if let Some(mut node) = app_handle
+                .state::<AppState>()
+                .peer_node
+                .lock()
+                .unwrap()
+                .take()
+            {
+                node.shutdown();
+            }
+        }
+    });
 }

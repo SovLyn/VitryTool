@@ -12,6 +12,13 @@ import {
   getMaxEntries,
   setMaxEntries,
 } from "../../api/clipboard-history";
+import {
+  getLanSyncStatus,
+  setLanSyncBroadcast,
+  setLanSyncReceive,
+  setLanSyncTerminalName,
+  type LanSyncStatus,
+} from "../../api/lan-sync";
 import { getHotkey, getHotkeyCapability, setHotkey } from "../../api/quick-paste";
 import { locales, useI18n, type Locale } from "../../i18n";
 import { useTheme, type Theme } from "../../theme";
@@ -36,6 +43,10 @@ export function Settings() {
   const [notice, setNotice] = createSignal("");
   /** 全局快捷键能力检测：null=加载中；false=当前环境不支持（隐藏设置入口、显示警告）。 */
   const [hotkeySupported, setHotkeySupported] = createSignal<boolean | null>(null);
+  /** 局域网同步状态（lan-sync，0.2.5）。 */
+  const [lanStatus, setLanStatus] = createSignal<LanSyncStatus | null>(null);
+  const [terminalInput, setTerminalInput] = createSignal("");
+  const [savedTerminal, setSavedTerminal] = createSignal("");
 
   onMount(() => {
     // 检测失败按「支持」处理（fail-open，不打扰正常环境用户）
@@ -53,6 +64,14 @@ export function Settings() {
     void getHotkey()
       .then((hk) => setHotkeyValue(hk ?? ""))
       .catch((err) => setError(t(getErrorCode(err) || "quickPaste.storage_error")));
+
+    void getLanSyncStatus()
+      .then((s) => {
+        setLanStatus(s);
+        setTerminalInput(s.terminalName);
+        setSavedTerminal(s.terminalName);
+      })
+      .catch((err) => setError(t(getErrorCode(err) || "lanSync.peer_node_error")));
   });
 
   /** 失焦保存：有效则写后端，无效（越界/非整数）则恢复为已保存值。 */
@@ -88,6 +107,41 @@ export function Settings() {
       } catch {
         // 回滚读取失败则保持原显示
       }
+    }
+  }
+
+  /** 开关切换：乐观更新，失败回滚并提示。 */
+  async function toggleLan(key: "broadcast" | "receive", next: boolean) {
+    const prev = lanStatus();
+    if (!prev) return;
+    setLanStatus({ ...prev, [key === "broadcast" ? "broadcastEnabled" : "receiveEnabled"]: next });
+    try {
+      if (key === "broadcast") await setLanSyncBroadcast(next);
+      else await setLanSyncReceive(next);
+      setError("");
+    } catch (err) {
+      if (prev) setLanStatus(prev);
+      setError(t(getErrorCode(err) || "lanSync.peer_node_error"));
+    }
+  }
+
+  /** 终端名失焦保存：有效则写后端；无效恢复为已保存值。 */
+  async function saveTerminalOnBlur() {
+    const name = terminalInput().trim();
+    if (name.length === 0 || name.length > 32) {
+      setTerminalInput(savedTerminal());
+      return;
+    }
+    if (name === savedTerminal()) return;
+    try {
+      await setLanSyncTerminalName(name);
+      setSavedTerminal(name);
+      setLanStatus((s) => (s ? { ...s, terminalName: name } : s));
+      setNotice(t("lanSync.saved"));
+      setError("");
+    } catch (err) {
+      setError(t(getErrorCode(err) || "lanSync.invalid_name"));
+      setTerminalInput(savedTerminal());
     }
   }
 
@@ -153,6 +207,68 @@ export function Settings() {
             onBlur={() => void saveMaxOnBlur()}
           />
         </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-title">{t("lanSync.settingsTitle")}</div>
+        <Show when={lanStatus()} fallback={<div class="settings-row"><span class="settings-label">{t("lanSync.nodeOffline")}</span></div>}>
+          {(status) => (
+            <>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">{t("lanSync.broadcast")}</div>
+                  <div class="settings-desc">{t("lanSync.broadcastDesc")}</div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={status().broadcastEnabled}
+                  class={status().broadcastEnabled ? "switch on" : "switch"}
+                  onClick={() => void toggleLan("broadcast", !status().broadcastEnabled)}
+                >
+                  <span class="switch-knob" />
+                </button>
+              </div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">{t("lanSync.receive")}</div>
+                  <div class="settings-desc">{t("lanSync.receiveDesc")}</div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={status().receiveEnabled}
+                  class={status().receiveEnabled ? "switch on" : "switch"}
+                  onClick={() => void toggleLan("receive", !status().receiveEnabled)}
+                >
+                  <span class="switch-knob" />
+                </button>
+              </div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">{t("lanSync.terminalName")}</div>
+                  <div class="settings-desc">{t("lanSync.terminalNameDesc")}</div>
+                </div>
+                <input
+                  class="number-input"
+                  type="text"
+                  maxlength={32}
+                  value={terminalInput()}
+                  onInput={(e) => setTerminalInput(e.currentTarget.value)}
+                  onBlur={() => void saveTerminalOnBlur()}
+                />
+              </div>
+              <div class="settings-row">
+                <div>
+                  <div class="settings-label">{t("lanSync.peersOnline", { count: status().peerCount })}</div>
+                  <div class="settings-desc" title={status().peerId}>
+                    {status().peerId.slice(0, 10)}…
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </Show>
       </div>
 
       <div class="settings-group">

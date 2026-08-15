@@ -5,8 +5,10 @@
 //!
 //! ## 级别与目标策略（约定）
 //!
-//! - **开发（debug_assertions）**：`Trace` 级输出到终端，便于调试；系统 crate
-//!   （`tauri`、各 `tauri_plugin_*`）压到 `Info`，减少噪音、聚焦本项目日志。
+//! - **开发（debug_assertions）**：`Debug` 级输出到终端，便于调试；系统 crate
+//!   （`tauri`、`tauri_plugin_*`、`libp2p*`、`quinn*`、`yamux`、`multistream_select`、`tracing`）
+//!   压到 `Info`——libp2p 的 Trace/Debug（swarm 轮询、心跳、流协商）噪音过大，测试时只看本项目日志。
+//!   本项目自身日志保持 Debug（`log::debug!` 及以下不输出，`info` 正常）。
 //! - **发布（release）**：`Error` 级写入日志文件（应用日志目录，见 `app.log_dir()`），
 //!   单文件 5 MiB 大小轮转，仅保留最近一份（`KeepOne`）。
 //!
@@ -35,12 +37,28 @@ const DEV_LOG_FILE: &str = "vitrytool-dev";
 pub fn plugin() -> tauri::plugin::TauriPlugin<Wry> {
     #[cfg(debug_assertions)]
     let builder = Builder::new()
-        .level(LevelFilter::Trace)
-        // 压系统 crate 噪音，本项目日志保持全量 Trace
+        .level(LevelFilter::Debug)
+        // 压系统 crate 噪音（libp2p 的 Trace/Debug 心跳与流协商在测试时过于嘈杂）
         .level_for("tauri", LevelFilter::Info)
         .level_for("tauri_plugin_clipboard_x", LevelFilter::Info)
         .level_for("tauri_plugin_store", LevelFilter::Info)
         .level_for("tauri_plugin_opener", LevelFilter::Info)
+        // 统一 filter：
+        // - tracing→log 桥的 span 生命周期记录（target `tracing::span`）直接丢弃；
+        // - libp2p 全部子 crate（libp2p_tcp/quic/mdns/core/…）的 Debug/Trace 丢弃，Info 保留
+        //   （level_for 为精确模块匹配，无法覆盖子 crate，故在此按 target 前缀统一处理）。
+        .filter(|metadata| {
+            let t = metadata.target();
+            if t.starts_with("tracing::span") {
+                return false;
+            }
+            // log::Level 按严重度降序（Error<Warn<Info<Debug<Trace），
+            // 故丢弃 Debug 及以下（>= Debug）即丢弃 libp2p 的 Debug/Trace。
+            if t.starts_with("libp2p") && metadata.level() >= log::Level::Debug {
+                return false;
+            }
+            true
+        })
         .targets([
             Target::new(TargetKind::Stdout),
             Target::new(TargetKind::LogDir {

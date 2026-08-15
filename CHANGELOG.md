@@ -2,7 +2,30 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
-## [0.2.4] - 2026-08-14
+## [0.2.5] - 2026-08-14
+
+### 新增
+
+- **局域网剪贴板同步（lan-sync）**，契约见 `docs/api/lan-sync.md`：
+  - **节点层（`core/peer_node`，跨功能复用）**：libp2p 0.56（mDNS 发现 + TCP/QUIC 连接 + gossipsub 广播），独立 tokio 线程随应用生命周期运行；ed25519 身份持久化（`AppData/peer-key.json`，peerId 为终端稳定身份，不依赖 IP）；固定主题 `vitrytool-lan-clipboard`，信封 `v=0.2.5` 向后兼容（只增字段）。
+  - **单实例**（tauri-plugin-single-instance）：一台机器一个终端；第二实例启动唤出主窗口。
+  - **复制即广播**：剪贴板历史产生新条目（`is_new`）时经 `core::hooks` 通知广播（防环 / 开关 / 1MiB 体积上限在 lan-sync 侧判断；超限静默跳过）。
+  - **收件箱**：按来源节点分桶（每桶最新 8 条，全局最多 8 个节点桶，新节点淘汰「桶内最新条目最旧」的整桶）；指纹去重置顶；本机广播不入箱；持久化 `AppData/lan-inbox.json`；事件 `lan-sync://inbox-updated` 驱动前端刷新。
+  - **防环**：近期接收指纹 LRU（100 条），回写/系统回环不重广播。
+  - **命令面**：`getLanSyncStatus` / `setLanSyncBroadcast` / `setLanSyncReceive` / `setLanSyncTerminalName` / `getLanInbox` / `writeLanInboxEntry` / `deleteLanInboxEntry` / `clearLanInbox`；开关默认全开（`AppData/lan-sync.json`）。
+  - **前端**：主窗口新增「收件箱」页（节点分组列表、单击回写、hover 删除、新条目高亮脉冲、粘性磨砂分组头、空态引导）；侧栏未读徽标；设置页新增「局域网同步」区（广播/接收开关、终端名、在线终端数、本机 ID）。
+  - 内容范围：文本 / HTML / RTF / 文件路径广播；**图片首版仅广播元数据**（名称/尺寸，字节传输 TODO）。
+  - 后端 dt 新增 20 组（收件箱分桶/去重/全局淘汰/信封映射/指纹/身份持久化等），前端新增 vitest 12 用例；clippy 干净。
+
+### 变更
+
+- 版本 0.2.4 → 0.2.5（三处同步）。
+- 依赖新增：`libp2p`、`tokio`、`futures`、`tauri-plugin-single-instance`。
+- `capture_clipboard` 在产生新条目时调用 `core::hooks::notify_new_entry`（未注册为空操作，不影响既有行为）。
+- README 已知限制新增：Windows 虚拟网卡（尤其 WSL 虚拟交换机）可能使 mDNS 发现失败（实测关闭 WSL 虚拟交换机后恢复；临时规避改 metric/删路由）；广播单条上限 1MiB。
+- `dev/CONTEXT.md` 新增 lan-sync 领域术语；前期调研与决策记录见 `dev/interface-drafts/`。
+
+
 
 ### 新增
 

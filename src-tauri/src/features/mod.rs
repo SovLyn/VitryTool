@@ -16,3 +16,6 @@ pub mod clipboard_history;
 
 /// 快速粘贴（全局快捷键 + 置顶小屏）。
 pub mod quick_paste;
+
+/// 局域网剪贴板同步（0.2.5；节点层见 core/peer_node）。
+pub mod lan_sync;

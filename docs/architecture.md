@@ -37,6 +37,10 @@ src-tauri/src/
 ├── core/
 │   ├── error.rs      # 统一错误类型 ApiError（错误码 + 消息）
 │   ├── state.rs      # 全局状态（AppState）
+│   ├── log.rs        # 日志初始化（级别/目标/隐私约束，见 §8）
+│   ├── hooks.rs      # 跨功能钩子（如剪贴板新条目 → lan-sync 广播，解耦功能间调用）
+│   ├── tray.rs       # 系统托盘（应用壳能力）
+│   ├── peer_node/    # 节点层（libp2p：身份持久化 + swarm 生命周期 + pubsub 通道，跨功能复用）
 │   └── mod.rs
 └── features/
     ├── mod.rs        # 各功能 mod 的声明与导出
@@ -84,10 +88,10 @@ src/
 
 - 后端：`cargo test`（位于 `src-tauri/`）。**开发者测试（dt）**：单元测试放在功能 mod 的 `tests.rs`，文档示例使用 doctest；每个功能 mod 必须要有。
 - 前端：vitest（`pnpm test`），配置见 `vite.config.ts`。
-- CI（GitHub Actions：fmt + clippy + cargo test + 前端 build + vitest）在首个功能签发后接入。
+- CI（GitHub Actions：fmt + clippy + cargo test + 前端 build + vitest）规划中，见 TODO.md。
 
 ## 8. 日志约定
 
 - 基于 `log` 门面 + `tauri-plugin-log`（官方后端），初始化在 `core/log.rs`；业务代码直接用 `log::trace! / debug! / info! / warn! / error!`，无需关心输出目标。
-- 级别与目标：**开发（debug_assertions）** `Trace` 级输出终端，系统 crate 压到 `Info`；**发布（release）** `Error` 级写入应用日志目录文件（5 MiB 大小轮转，保留最近一份）。
+- 级别与目标：**开发（debug_assertions）** `Debug` 级输出终端，系统 crate 压到 `Info`——libp2p 各子 crate 的 Debug/Trace（swarm 轮询、心跳、流协商）与 tracing→log 桥的 span 记录统一丢弃（自定义 filter，见 `core/log.rs`）；**发布（release）** `Error` 级写入应用日志目录文件（5 MiB 大小轮转，保留最近一份）。
 - **隐私约束**：日志只记录元数据（id / 类型 / 长度 / 路径 / 操作结果），绝不记录剪贴板明文等敏感内容（见 `core/log.rs`）。

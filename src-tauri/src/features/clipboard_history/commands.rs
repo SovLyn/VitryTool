@@ -179,6 +179,9 @@ pub async fn capture_clipboard(app: AppHandle) -> Result<Option<ClipboardEntry>,
             outcome.evicted_files.len(),
             entries.len()
         );
+        // lan-sync 广播钩子（core::hooks）：新条目 → 广播（防环/开关/体积在 lan_sync 侧判断）
+        let entry_json = serde_json::to_value(&outcome.entry).unwrap_or_default();
+        crate::core::hooks::notify_new_entry(&app, &entry_json);
     } else {
         log::debug!(
             "capture_clipboard: dedup-promote entry id={} total={}",

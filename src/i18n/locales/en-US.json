@@ -57,5 +57,31 @@
     "clipboard": "Clipboard",
     "maxEntries": "Max entries",
     "maxEntriesDesc": "History retention limit (1–1024)"
+  },
+  "lanSync": {
+    "title": "Inbox",
+    "empty": "Nothing here yet. Content copied on other terminals will appear here when receiving is enabled.",
+    "emptyReceiveOff": "Receiving is off. Content from other terminals won't appear here.",
+    "clear": "Clear All",
+    "clearConfirm": "Clear the entire inbox?",
+    "delete": "Delete",
+    "writtenBack": "Written back to clipboard",
+    "items": "{count} items",
+    "settingsTitle": "LAN Sync",
+    "broadcast": "Broadcast",
+    "broadcastDesc": "Automatically broadcast new clipboard content to other terminals on the LAN",
+    "receive": "Receive",
+    "receiveDesc": "Receive broadcasts from other terminals into the inbox (never writes back automatically)",
+    "terminalName": "Terminal name",
+    "terminalNameDesc": "Shown in other terminals' inboxes (defaults to host name, ≤ 32 chars)",
+    "saved": "Saved",
+    "nodeOffline": "Sync node is not running",
+    "peersOnline": "Online terminals: {count}",
+    "storage_error": "Failed to read or write inbox",
+    "entry_not_found": "Entry not found or already evicted",
+    "invalid_name": "Terminal name must be non-empty and at most 32 characters",
+    "node_not_running": "Sync node is not running, please restart the app",
+    "peer_node_error": "Sync node error, check the logs",
+    "too_large": "Content too large to broadcast"
   }
 }
