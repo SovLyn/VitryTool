@@ -1,7 +1,9 @@
 name: Release
 
-# CD：打 tag（v*）触发 → tauri-action 三平台构建安装包 → 创建 GitHub Release 草稿。
-# 发布流程：git tag v0.2.6 && git push origin v0.2.6；人工确认草稿后发布。
+# CD：打 tag（v*）触发 → 三平台构建安装包 → GitHub Release 草稿（人工确认后发布）。
+# 发布流程：git tag v0.2.7 && git push origin v0.2.7
+# 说明：tag 即版本（本项目契约 docs/versioning.md），不引入 release 分支/自动打 tag；
+#       显式 target 矩阵（与各 runner 宿主架构一致）、timeout、fetch-depth、结构化 releaseBody。
 on:
   push:
     tags:
@@ -11,14 +13,25 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
+    name: build (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-22.04, windows-latest]
-    runs-on: ${{ matrix.platform }}
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -44,17 +57,41 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libglib2.0-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libglib2.0-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Build (Tauri)
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }}
           tagName: ${{ github.ref_name }}
           releaseName: "VitryTool ${{ github.ref_name }}"
-          releaseBody: "请参见 [CHANGELOG.md](CHANGELOG.md)。"
           releaseDraft: true
           prerelease: false
+          releaseBody: |
+            ## 变更
+
+            - 剪贴板历史（文本 / HTML / RTF / 图片 / 文件）与收藏
+            - 快速粘贴（全局快捷键 + 置顶小屏）
+            - 局域网剪贴板同步（lan-sync，libp2p + mDNS）
+            - 主题（亮色 / 暗色 / 跟随系统）与设置页
+            - 系统托盘（广播 / 接收快速开关）与窗口状态记忆
+            - 详细变更见 [CHANGELOG.md](CHANGELOG.md)
+
+            ## 校验
+
+            | 平台 | SHA256 |
+            |------|--------|
+            | Windows | 见附件 |
+            | macOS | 见附件 |
+            | Linux | 见附件 |

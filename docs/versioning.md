@@ -28,6 +28,6 @@ Tauri 构建时会校验 `Cargo.toml` 与 `tauri.conf.json` 的版本一致性�
 1. 递增版本（三处同步）。
 2. 更新 `CHANGELOG.md`（未发布条目转为已发布）。
 3. 更新 README 中的状态/版本信息。
-4. 打 tag（如 `v0.1.0`）。
+4. 打 tag 并推送（如 `v0.2.7`）：CD（`.github/workflows/release.yml`）自动构建三平台安装包并生成 GitHub Release 草稿，确认后用户即可下载。
 
 详细的内部操作记录见 `dev/versioning.md`（不对外）。
