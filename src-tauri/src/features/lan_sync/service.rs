@@ -303,6 +303,17 @@ pub fn inbox_for_display(data: &InboxData) -> InboxData {
 // 构建广播信封
 // ---------------------------------------------------------------------------
 
+/// 提取路径的文件名（跨平台）：兼容 `/` 与 `\` 两种分隔符。
+///
+/// 不能用 `std::path::Path::file_name`——它按**当前平台**解析分隔符：
+/// Linux 上 `C:\x\a.png`（Windows 风格路径）会被整串当作文件名。
+fn basename(path: &str) -> String {
+    path.rsplit(['/', '\\'])
+        .find(|s| !s.is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
 /// 从剪贴板历史条目（序列化 JSON）构建信封。
 ///
 /// 字段约定与 `ClipboardEntry` 的 camelCase 序列化一致。
@@ -327,10 +338,7 @@ pub fn envelope_from_entry_json(
         .filter(|v| !v.is_empty());
     let image_meta = value.get("image").and_then(|img| {
         let path = img.get("path")?.as_str()?;
-        let name = std::path::Path::new(path)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.to_string());
+        let name = basename(path);
         Some(ImageMeta {
             name,
             width: img.get("width").and_then(|v| v.as_u64()).map(|v| v as u32),
@@ -577,6 +585,20 @@ mod pure_tests {
         assert_eq!(env.kinds, vec!["text", "html", "image"]);
         assert_eq!(env.image_meta.as_ref().unwrap().name, "a.png");
         assert_eq!(env.ts, 1234);
+    }
+
+    #[test]
+    fn basename_handles_both_separators_cross_platform() {
+        // Windows 风格（CI 在 Linux 上跑，`\` 不是系统分隔符，必须手动兼容）
+        assert_eq!(basename(r"C:\x\a.png"), "a.png");
+        assert_eq!(basename(r"C:\a.png"), "a.png");
+        // Unix 风格
+        assert_eq!(basename("/x/y/a.png"), "a.png");
+        assert_eq!(basename("a.png"), "a.png");
+        // 混合分隔符 / 尾部斜杠 / 空
+        assert_eq!(basename(r"/x\y/a.png"), "a.png");
+        assert_eq!(basename("/x/y/"), "y");
+        assert_eq!(basename(""), "");
     }
 
     #[test]
