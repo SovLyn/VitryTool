@@ -125,7 +125,10 @@ mod tests {
 
     #[test]
     fn validate_accepts_valid() {
-        assert_eq!(validate("error", "lan.peer_node_error"), Ok(NotifyLevel::Error));
+        assert_eq!(
+            validate("error", "lan.peer_node_error"),
+            Ok(NotifyLevel::Error)
+        );
         assert_eq!(validate("info", "lanSync.items"), Ok(NotifyLevel::Info));
     }
 
