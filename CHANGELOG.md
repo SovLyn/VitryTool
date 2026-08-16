@@ -2,6 +2,30 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
+## [0.2.8] - 2026-08-16
+
+### 新增
+
+- **全局通知系统（notify）**，契约见 `docs/api/notify.md`、功能文档 `docs/features/notify.md`：
+  - **双向统一通道**：前端经新命令 `notify(level, code, params?)` 提交通知 → 后端校验（level ∈ success/error/warning/info、code 非空，非法返回 `notify.invalid`）→ 广播 `app://notify` 事件到所有窗口；后端内部站点也可直接调用 `core::notify::notify_app` 发通知。负载为结构化 `level + code + params`，**不含界面文案**（符合「后端不输出界面文案」铁律），前端渲染时按当前 locale 翻译（切语言即时重译）。
+  - **后端 5 个站点接入**（此前只记日志、用户无感知）：快捷键注册失败（`quick_paste.register_failed`，error）、托盘广播/接收开关失败（`quick_paste.tray_update_failed`，error）、托盘开关时 lan-sync 未注册（同码，warning）、lan-sync 节点线程异常退出（`lan.peer_node_error`，error）、收件箱持久化失败（`lan.storage_error`，error）；全部只 emit 不阻塞；正常退出前置位关闭标记避免误报节点错误。
+  - **前端 NotificationProvider**（`src/components/NotificationProvider.tsx`，仅主窗口挂载）：右上角玻璃 toast 堆栈（`--surface-raised` + backdrop-filter + level 强调条/色点），分 level 自动消失（success 3s / info 4s / warning 6s / error 8s）、hover 暂停计时、warning/error 带手动关闭、最多 4 条、新到顶部（FLIP 让位）、同 level+code 3 秒内去重置顶计时；进入材质化动效（translateY+scale+opacity+blur，临界阻尼）、退出对称上滑淡出；`role="status"` + `aria-live="polite"`、关闭按钮 aria-label、`prefers-reduced-motion`/`prefers-reduced-transparency` 降级。
+  - **前端三页迁移**（ClipboardHistory / Settings / Inbox）：操作反馈（回写/保存/开关/删除/清空/收藏的成功与失败）全部改为 `notify()`，删除页面内联 notice 信号与渲染；仅**初次加载失败**保留内联错误态（toast 消失会留下误导空态）。小屏 popup 不迁移（瞬态窗口，简略为要）。
+  - **错误码解析映射表**：`src/api/notify.ts` 内置后端码 → i18n 键映射（`lan.*`→`lanSync.*`、`quick_paste.*`→`quickPaste.*`），**修复现存 bug**：lan-sync 错误码（`lan.*`）此前在设置页/收件箱 `t()` 查不到 i18n 键 → 错误静默消失，现在正确翻译。
+  - **通知测试组件**（设置页底部「通知测试」分组，`import.meta.env.DEV` 门控，发布构建不渲染）：自定义 level / code / params 走完整 `notify()` 链路，可验证映射表与 `notify.unknown` 兜底。
+  - 新文案：`notify.unknown`（带 `{code}` 参数）、`notify.dismiss`、通知测试相关键，zh-CN / en-US 双语同步。
+  - 后端 dt +9（notify level 解析 / 参数校验 / payload 序列化形状），前端 vitest 新增 26 用例（api 映射表 9 + Provider 行为 16 + 页面迁移断言 1）；clippy 干净。
+
+### 修复
+
+- **通知频闪（实测发现）**：计时器此前每 200ms 为每个活跃 toast 创建新对象递减剩余时长，`<For>` 按对象引用 keyed → 整个列表 DOM 每 tick 重建一次，CSS 进入动画随之反复重放（每次从 opacity 0 起播），表现为「频繁出现-消失」。重构为 **deadline（到期时间戳）模式**：tick 只做到期检查，未到期时完全不调用 `setToasts`，DOM 永不重建；hover 暂停改为累计暂停偏移（`pausedMs`），暂停/恢复不触碰 toast 状态、恢复不触发渲染。新增回归测试（tick 期间元素引用稳定）。
+- **确认对话框替代 `window.confirm`（实测发现）**：收件箱 / 剪贴板历史的「清空」确认此前用 `window.confirm`，WebView 原生对话框显示 "localhost:1420 显示" 宿主标题。新增纯前端 `ConfirmDialog` 组件（`src/components/ConfirmDialog.tsx`）：模态遮罩 + 玻璃卡（沿用全局视觉）、破坏性操作红色确认按钮（`.btn-danger`，macOS alert 惯例）、`role="alertdialog"` + 焦点管理（打开聚焦取消、Esc / 遮罩点击取消、关闭还原焦点）、进入材质化动效 + reduced-motion 降级；新增 `common.cancel` 双语键。两处「清空」接入。
+
+### 变更
+
+- 版本 0.2.7 → 0.2.8（三处同步）。
+- 移除三页内联成功/错误消息渲染（`.message notice/error`），统一走全局通知；`error` 信号语义收窄为「初次加载失败」。
+
 ## [0.2.7] - 2026-08-16
 
 ### 新增

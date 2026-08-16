@@ -150,6 +150,12 @@ pub fn set_hotkey(app: AppHandle, hotkey: String) -> Result<(), ApiError> {
         if let Some(prev_str) = &previous {
             let _ = shortcuts.on_shortcut(prev_str.as_str(), hotkey_handler);
         }
+        // 用户刚配置的快捷键注册失败（可能被占用）→ 全局通知（契约 docs/api/notify.md 5.2）
+        crate::core::notify::notify_app(
+            &app,
+            crate::core::notify::NotifyLevel::Error,
+            ERR_REGISTER_FAILED,
+        );
         return Err(register_failed_err(e));
     }
 

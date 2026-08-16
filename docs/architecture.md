@@ -70,6 +70,7 @@ src-tauri/src/
 src/
 ├── features/<feature>/    # 功能页面/组件（与后端 features/ 同名对齐）
 ├── api/<feature>.ts       # 该功能所有 invoke 调用封装（类型与契约文档一致）
+├── components/            # 跨功能通用组件（如 StarIcon、NotificationProvider、ConfirmDialog）
 ├── i18n/
 │   ├── index.tsx          # i18n 初始化与 Provider
 │   └── locales/

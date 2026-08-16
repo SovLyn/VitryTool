@@ -3,6 +3,9 @@
     "title": "VitryTool",
     "tagline": "局域网信息共享工具"
   },
+  "common": {
+    "cancel": "取消"
+  },
   "clipboard": {
     "title": "剪贴板历史",
     "empty": "暂无剪贴记录，复制内容后自动出现在这里",
@@ -90,5 +93,18 @@
     "node_not_running": "同步节点未运行，请重启应用",
     "peer_node_error": "同步节点异常，请查看日志",
     "too_large": "内容过大，未广播"
+  },
+  "notify": {
+    "unknown": "发生未知错误（{code}）",
+    "dismiss": "关闭通知",
+    "testTitle": "通知测试",
+    "testDesc": "发送一条测试通知，验证通知通道与渲染（仅开发构建可见）",
+    "testLevel": "级别",
+    "testCode": "错误码 / i18n 键",
+    "testCodePlaceholder": "如 clipboard.copied",
+    "testParams": "参数（JSON，可选）",
+    "testParamsPlaceholder": "如 {\"count\":3}",
+    "testParamsInvalid": "参数需为合法 JSON 对象",
+    "testSend": "发送通知"
   }
 }

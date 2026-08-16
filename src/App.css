@@ -202,6 +202,96 @@ button:active {
   background: var(--accent-press);
 }
 
+/* 破坏性按钮（确认对话框，0.2.8）：红色强调，macOS alert 惯例 */
+.btn-danger {
+  background: #ff453a;
+  color: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-danger:hover {
+  background: #ff6b5e;
+}
+
+/* ==========================================================================
+   确认对话框（0.2.8，替代 window.confirm）
+   - 模态遮罩 + 居中玻璃卡（沿用全局玻璃视觉）
+   - 破坏性操作确认按钮红色（.btn-danger）
+   - 进入材质化（scale + translateY + opacity），reduced-motion 降级
+   ========================================================================== */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: dialog-overlay-in 0.2s ease both;
+}
+
+.dialog {
+  width: min(420px, 100%);
+  padding: 22px 24px;
+  background: var(--surface-raised);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  animation: dialog-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dialog-title {
+  font-size: 1.02rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+
+.dialog-message {
+  margin: 0 0 20px;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@keyframes dialog-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    transform: translateY(10px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog-overlay,
+  .dialog {
+    animation: none;
+  }
+}
+
 /* ---- 列表 ---- */
 .history-actions {
   display: flex;
@@ -668,4 +758,187 @@ button:active {
 
 .switch.on .switch-knob {
   transform: translateX(18px);
+}
+
+/* ==========================================================================
+   通知系统（0.2.8，契约 docs/api/notify.md）
+   - 右上角 toast 堆栈（NotificationProvider，仅主窗口）
+   - 玻璃材质 + 左侧 level 强调条 + 色点（与收藏强调条同一手法）
+   - 进入：材质化（translateY + scale + opacity + blur 同步，临界阻尼无弹跳）
+   - 退出：同路径对称（上滑 + 淡出）；只动 transform/opacity
+   - reduced-motion → 纯 opacity 交叉淡化；reduced-transparency → 实色卡
+   ========================================================================== */
+
+/* level 语义色（与 .message.* 同源；info 为新增中性蓝） */
+.toast-stack {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 320px;
+  max-width: calc(100vw - 40px);
+  pointer-events: none; /* 容器不拦截点击，仅子项可交互 */
+}
+
+.toast {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 12px 18px;
+  background: var(--surface-raised);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  font-size: 0.88rem;
+  color: var(--text);
+  will-change: transform, opacity;
+}
+
+/* 左侧 3px level 强调条（与 .entry-card.favorited::before 同一手法） */
+.toast-bar {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+}
+
+/* 色点：level 识别 */
+.toast-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.toast-success .toast-bar,
+.toast-success .toast-dot {
+  background: #30d158;
+}
+
+.toast-error .toast-bar,
+.toast-error .toast-dot {
+  background: #ff453a;
+}
+
+.toast-warning .toast-bar,
+.toast-warning .toast-dot {
+  background: #ff9f0a;
+}
+
+.toast-info .toast-bar,
+.toast-info .toast-dot {
+  background: #0a84ff;
+}
+
+.toast-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.toast-dismiss {
+  flex-shrink: 0;
+  padding: 4px 7px;
+  border-radius: 7px;
+  color: var(--text-tertiary);
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.toast-dismiss:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* 进入：材质化（下落 + 展开 + 失焦同步），临界阻尼无弹跳 */
+@keyframes toast-in {
+  from {
+    transform: translateY(-16px) scale(0.96);
+    opacity: 0;
+    filter: blur(4px);
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+.toast {
+  animation: toast-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 退出：同路径对称（从哪里来回哪里去：上滑 + 淡出 + 微缩） */
+@keyframes toast-out {
+  from {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-12px) scale(0.98);
+    opacity: 0;
+  }
+}
+
+.toast.leaving {
+  animation: toast-out 0.26s ease-in both;
+}
+
+/* reduced-motion：纯 opacity 交叉淡化，无位移/缩放/模糊 */
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: toast-fade-in 0.18s ease both;
+  }
+
+  .toast.leaving {
+    animation: toast-fade-out 0.18s ease both;
+  }
+}
+
+@keyframes toast-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes toast-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* reduced-transparency：玻璃退化为实色卡 */
+@media (prefers-reduced-transparency: reduce) {
+  .toast {
+    background: var(--surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ---- 通知测试（DEV 门控，契约 5.7） ---- */
+.notify-tester-code {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.notify-tester-params {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 0.85rem;
 }

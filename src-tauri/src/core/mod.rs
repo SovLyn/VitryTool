@@ -5,6 +5,7 @@
 pub mod error;
 pub mod hooks;
 pub mod log;
+pub mod notify;
 pub mod peer_node;
 pub mod state;
 pub mod tray;

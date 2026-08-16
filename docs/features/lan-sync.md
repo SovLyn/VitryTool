@@ -44,4 +44,4 @@ features/clipboard_history ──(新条目 is_new)──▶ core/hooks ──�
 
 ## 待办（见 TODO.md）
 
-图片 / 文件字节传输（含分片）、接收器模式（立即写回且无法发送）、黑名单、收件箱收藏 / 跨端转发、开关快捷键、手动添加对端、libp2p-mdns Windows 网卡固定根治、全局错误通知 UI、重置身份入口。
+图片 / 文件字节传输（含分片）、接收器模式（立即写回且无法发送）、黑名单、收件箱收藏 / 跨端转发、开关快捷键、手动添加对端、libp2p-mdns Windows 网卡固定根治、重置身份入口。（「全局错误通知 UI」已于 0.2.8 完成，见 `docs/features/notify.md`。）

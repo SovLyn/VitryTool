@@ -1,10 +1,13 @@
-//! 设置页：语言、主题、剪贴板条数上限、快速粘贴快捷键。
+//! 设置页：语言、主题、剪贴板条数上限、快速粘贴快捷键、局域网同步、通知测试（DEV）。
 //!
 //! - 语言 / 主题为纯前端设置，经 `useI18n` / `useTheme` 持久化到 localStorage。
 //! - 条数上限走后端 `setMaxEntries`（后端逻辑需要 n，见契约）；**失焦即保存**，
 //!   无效输入（越界/非整数）时恢复为已保存值，不弹保存按钮与成功提示。
 //! - 快捷键走 `HotkeyRecorder` + 后端 `setHotkey`（全局注册 + 持久化，契约见
 //!   `docs/api/quick-paste.md`）；保存成功提示、失败回滚显示。
+//! - 操作反馈（保存/开关/快捷键）经全局通知（`notify()`，契约 `docs/api/notify.md`）；
+//!   仅初次加载失败保留内联错误态。
+//! - 「通知测试」分组为开发者调试工具（`import.meta.env.DEV` 门控，发布构建不渲染）。
 
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
@@ -20,6 +23,7 @@ import {
   setLanSyncTerminalName,
   type LanSyncStatus,
 } from "../../api/lan-sync";
+import { notify, UNKNOWN_NOTIFY_CODE, type NotifyLevel } from "../../api/notify";
 import { getHotkey, getHotkeyCapability, setHotkey } from "../../api/quick-paste";
 import { locales, useI18n, type Locale } from "../../i18n";
 import { useTheme, type Theme } from "../../theme";
@@ -35,14 +39,100 @@ const THEME_OPTIONS: { value: Theme; labelKey: string }[] = [
 const MAX_ENTRIES_MIN = 1;
 const MAX_ENTRIES_MAX = 1024;
 
+/** 通知测试组件可选的 level（契约 notify 5.3）。 */
+const NOTIFY_LEVELS: NotifyLevel[] = ["success", "info", "warning", "error"];
+
+/** 通知测试组件（DEV 门控，契约 notify 5.7）：自定义 level / code / params 走全链路。 */
+function NotifyTester() {
+  const { t } = useI18n();
+  const [level, setLevel] = createSignal<NotifyLevel>("success");
+  const [code, setCode] = createSignal("clipboard.copied");
+  const [paramsText, setParamsText] = createSignal("");
+  const [testerError, setTesterError] = createSignal("");
+
+  async function send() {
+    setTesterError("");
+    let params: Record<string, string | number | boolean> | undefined;
+    const raw = paramsText().trim();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+          params = parsed as Record<string, string | number | boolean>;
+        } else {
+          setTesterError(t("notify.testParamsInvalid"));
+          return;
+        }
+      } catch {
+        setTesterError(t("notify.testParamsInvalid"));
+        return;
+      }
+    }
+    await notify({ level: level(), code: code().trim() || UNKNOWN_NOTIFY_CODE, params });
+  }
+
+  return (
+    <div class="settings-group">
+      <div class="settings-group-title">{t("notify.testTitle")}</div>
+      <div class="settings-row">
+        <span class="settings-label">{t("notify.testLevel")}</span>
+        <div class="segmented">
+          <For each={NOTIFY_LEVELS}>
+            {(l) => (
+              <button
+                type="button"
+                class={level() === l ? "active" : ""}
+                onClick={() => setLevel(l)}
+              >
+                {l}
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">{t("notify.testCode")}</div>
+          <div class="settings-desc">{t("notify.testDesc")}</div>
+        </div>
+        <input
+          class="number-input notify-tester-code"
+          type="text"
+          value={code()}
+          placeholder={t("notify.testCodePlaceholder")}
+          onInput={(e) => setCode(e.currentTarget.value)}
+        />
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">{t("notify.testParams")}</div>
+        </div>
+        <input
+          class="number-input notify-tester-params"
+          type="text"
+          value={paramsText()}
+          placeholder={t("notify.testParamsPlaceholder")}
+          onInput={(e) => setParamsText(e.currentTarget.value)}
+        />
+      </div>
+      <div class="settings-row">
+        <button type="button" class="btn-primary" onClick={() => void send()}>
+          {t("notify.testSend")}
+        </button>
+        {testerError() && <span class="message error">{testerError()}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function Settings() {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const [maxInput, setMaxInput] = createSignal(64);
   const [savedMax, setSavedMax] = createSignal(64);
   const [hotkey, setHotkeyValue] = createSignal("");
-  const [error, setError] = createSignal("");
-  const [notice, setNotice] = createSignal("");
+  /** 仅初次加载失败保留内联错误态（契约 notify 5.6）；操作反馈走全局通知。 */
+  const [loadError, setLoadError] = createSignal("");
   /** 全局快捷键能力检测：null=加载中；false=当前环境不支持（隐藏设置入口、显示警告）。 */
   const [hotkeySupported, setHotkeySupported] = createSignal<boolean | null>(null);
   /** 局域网同步状态（lan-sync，0.2.5）。 */
@@ -61,11 +151,11 @@ export function Settings() {
         setMaxInput(n);
         setSavedMax(n);
       })
-      .catch((err) => setError(t(getErrorCode(err) || "clipboard.storage_error")));
+      .catch((err) => setLoadError(t(getErrorCode(err) || "clipboard.storage_error")));
 
     void getHotkey()
       .then((hk) => setHotkeyValue(hk ?? ""))
-      .catch((err) => setError(t(getErrorCode(err) || "quickPaste.storage_error")));
+      .catch((err) => setLoadError(t(getErrorCode(err) || "quickPaste.storage_error")));
 
     refreshLanStatus();
 
@@ -86,7 +176,7 @@ export function Settings() {
       setTerminalInput((prev) => prev || s.terminalName);
       setSavedTerminal(s.terminalName);
     } catch (err) {
-      setError(t(getErrorCode(err) || "lanSync.peer_node_error"));
+      setLoadError(t(getErrorCode(err) || "lanSync.peer_node_error"));
     }
   }
 
@@ -102,22 +192,19 @@ export function Settings() {
       const resp = await setMaxEntries(n);
       setMaxInput(resp.maxEntries);
       setSavedMax(resp.maxEntries);
-      setError("");
     } catch (err) {
-      setError(t(getErrorCode(err) || "clipboard.storage_error"));
+      await notify({ level: "error", code: getErrorCode(err) || "clipboard.storage_error" });
     }
   }
 
   /** 保存快捷键（含清除）：成功提示；失败回滚为已保存值。 */
   async function saveHotkey(next: string) {
-    setNotice("");
     try {
       await setHotkey(next);
       setHotkeyValue(next);
-      setError("");
-      if (next) setNotice(t("quickPaste.saved"));
+      if (next) await notify({ level: "success", code: "quickPaste.saved" });
     } catch (err) {
-      setError(t(getErrorCode(err) || "quickPaste.storage_error"));
+      await notify({ level: "error", code: getErrorCode(err) || "quickPaste.storage_error" });
       try {
         setHotkeyValue((await getHotkey()) ?? "");
       } catch {
@@ -134,10 +221,9 @@ export function Settings() {
     try {
       if (key === "broadcast") await setLanSyncBroadcast(next);
       else await setLanSyncReceive(next);
-      setError("");
     } catch (err) {
       if (prev) setLanStatus(prev);
-      setError(t(getErrorCode(err) || "lanSync.peer_node_error"));
+      await notify({ level: "error", code: getErrorCode(err) || "lanSync.peer_node_error" });
     }
   }
 
@@ -153,10 +239,9 @@ export function Settings() {
       await setLanSyncTerminalName(name);
       setSavedTerminal(name);
       setLanStatus((s) => (s ? { ...s, terminalName: name } : s));
-      setNotice(t("lanSync.saved"));
-      setError("");
+      await notify({ level: "success", code: "lanSync.saved" });
     } catch (err) {
-      setError(t(getErrorCode(err) || "lanSync.invalid_name"));
+      await notify({ level: "error", code: getErrorCode(err) || "lanSync.invalid_name" });
       setTerminalInput(savedTerminal());
     }
   }
@@ -310,16 +395,14 @@ export function Settings() {
         </Show>
       </div>
 
-      {error() && (
+      {loadError() && (
         <div class="settings-row">
-          <span class="message error">{error()}</span>
+          <span class="message error">{loadError()}</span>
         </div>
       )}
-      {notice() && (
-        <div class="settings-row">
-          <span class="message notice">{notice()}</span>
-        </div>
-      )}
+
+      {/* 通知测试（契约 notify 5.7）：仅开发构建可见，验证通知全链路 */}
+      {import.meta.env.DEV && <NotifyTester />}
     </section>
   );
 }

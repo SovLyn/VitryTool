@@ -11,9 +11,11 @@ use super::service::{
     InboxOutcome, LanSettings, MAX_MESSAGE_BYTES, MAX_RECEIVED_FINGERPRINTS,
 };
 use super::store::{InboxStore, SettingsStore, StoreBackend};
+use crate::core::notify::{notify_app, NotifyLevel};
 use crate::core::peer_node::NodeEvent;
 use crate::core::state::AppState;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager};
@@ -23,6 +25,18 @@ pub const INBOX_UPDATED_EVENT: &str = "lan-sync://inbox-updated";
 
 /// 设置变化通知事件名（0.2.7）：托盘 / 设置页切换开关后通知前端刷新。
 pub const SETTINGS_UPDATED_EVENT: &str = "lan-sync://settings-updated";
+
+/// 错误码（契约 docs/api/notify.md 5.2）：节点运行时错误 / 收件箱持久化失败。
+const ERR_NODE: &str = "lan.peer_node_error";
+const ERR_STORAGE: &str = "lan.storage_error";
+
+/// 应用退出标记：退出前置位，消费者线程据此区分「节点崩溃」与「正常关闭」。
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// 标记应用退出中（lib.rs `RunEvent::Exit` 停止节点前调用）。
+pub fn mark_shutting_down() {
+    SHUTTING_DOWN.store(true, Ordering::SeqCst);
+}
 
 /// 共享运行时状态。
 pub struct LanSyncShared {
@@ -70,7 +84,7 @@ pub fn init(
         inbox.nodes.len()
     );
 
-    let shared = Arc::new(Mutex::new(LanSyncShared {
+    let shared_state = Arc::new(Mutex::new(LanSyncShared {
         inbox,
         settings,
         received_fingerprints: VecDeque::new(),
@@ -78,7 +92,7 @@ pub fn init(
         node_running: true,
     }));
     LAN_SYNC
-        .set(shared)
+        .set(shared_state)
         .map_err(|_| "lan-sync already initialized".to_string())?;
 
     // 消费者线程：节点事件 → 收件箱
@@ -90,6 +104,16 @@ pub fn init(
                 if let NodeEvent::PubsubMessage { source, data } = event {
                     handle_message(&consumer_app, &source, &data);
                 }
+            }
+            // 节点事件通道断开（节点线程退出）：正常运行中即节点异常（收不到/发不出）。
+            // 应用退出时已置 SHUTTING_DOWN，不误报。
+            if !SHUTTING_DOWN.load(Ordering::SeqCst) {
+                log::error!("lan_sync: node thread exited unexpectedly");
+                if let Some(shared) = shared() {
+                    shared.lock().unwrap().node_running = false;
+                }
+                // 节点运行时错误 → 全局通知（契约 docs/api/notify.md 5.2）
+                notify_app(&consumer_app, NotifyLevel::Error, ERR_NODE);
             }
             log::debug!("lan_sync: consumer thread stopped");
         })
@@ -190,10 +214,12 @@ fn emit_inbox_updated(app: &AppHandle, reason: &str) {
     let _ = app.emit(INBOX_UPDATED_EVENT, serde_json::json!({ "reason": reason }));
 }
 
-/// 持久化收件箱（失败仅日志——内存态仍正确，下次变化会再尝试）。
+/// 持久化收件箱（失败仅日志——内存态仍正确，下次变化会再尝试；0.2.8 起失败发全局通知）。
 fn persist_inbox(app: &AppHandle, inbox: &InboxData) {
     if let Err(e) = StoreBackend::new(app).and_then(|b| b.save_inbox(inbox)) {
         log::error!("lan_sync: persist inbox failed: {e}");
+        // 收件箱写盘失败（丢数据风险）→ 全局通知（契约 docs/api/notify.md 5.2）
+        notify_app(app, NotifyLevel::Error, ERR_STORAGE);
     }
 }
 

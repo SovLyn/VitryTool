@@ -19,6 +19,8 @@ import {
   writeClipboardEntry,
   type ClipboardEntry,
 } from "../../api/clipboard-history";
+import { notify, UNKNOWN_NOTIFY_CODE } from "../../api/notify";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { StarIcon } from "../../components/StarIcon";
 import { useI18n } from "../../i18n";
 import { CLIPBOARD_UPDATED_EVENT } from "./listener";
@@ -114,8 +116,10 @@ function EntryCard(props: {
 export function ClipboardHistory() {
   const { t } = useI18n();
   const [entries, setEntries] = createSignal<ClipboardEntry[]>([]);
-  const [error, setError] = createSignal("");
-  const [notice, setNotice] = createSignal("");
+  /** 仅初次加载失败保留内联错误态（契约 notify 5.6）；操作反馈走全局通知。 */
+  const [loadError, setLoadError] = createSignal("");
+  /** 清空确认对话框（替代 window.confirm，0.2.8）。 */
+  const [confirmClear, setConfirmClear] = createSignal(false);
 
   // 收藏区在前（后端已按展示序返回，契约 5.8）；分组仅为渲染划分
   const favorites = () => entries().filter((e) => e.favoritedAt);
@@ -125,7 +129,7 @@ export function ClipboardHistory() {
     try {
       setEntries(await getClipboardHistory());
     } catch (err) {
-      setError(getErrorCode(err) || String(err));
+      setLoadError(getErrorCode(err) || String(err));
     }
   }
 
@@ -145,9 +149,9 @@ export function ClipboardHistory() {
   async function handleCopy(id: string) {
     try {
       await writeClipboardEntry(id);
-      setNotice(t("clipboard.copied"));
+      await notify({ level: "success", code: "clipboard.copied" });
     } catch (err) {
-      setError(getErrorCode(err) || String(err));
+      await notify({ level: "error", code: getErrorCode(err) || UNKNOWN_NOTIFY_CODE });
     }
   }
 
@@ -156,7 +160,7 @@ export function ClipboardHistory() {
       await deleteClipboardEntry(id);
       await refresh();
     } catch (err) {
-      setError(getErrorCode(err) || String(err));
+      await notify({ level: "error", code: getErrorCode(err) || UNKNOWN_NOTIFY_CODE });
     }
   }
 
@@ -166,27 +170,25 @@ export function ClipboardHistory() {
       // 跨窗同步：两窗共用既有刷新路径（契约 5.8）
       void emit(CLIPBOARD_UPDATED_EVENT, { id });
     } catch (err) {
-      setError(getErrorCode(err) || String(err));
+      await notify({ level: "error", code: getErrorCode(err) || UNKNOWN_NOTIFY_CODE });
     }
   }
 
   async function handleClear() {
-    if (!window.confirm(t("clipboard.clearConfirm"))) return;
     try {
       await clearClipboardHistory();
       await refresh();
     } catch (err) {
-      setError(getErrorCode(err) || String(err));
+      await notify({ level: "error", code: getErrorCode(err) || UNKNOWN_NOTIFY_CODE });
     }
   }
 
   return (
     <>
-      {error() && <p class="message error">{t(error()) || error()}</p>}
-      {notice() && <p class="message notice">{notice()}</p>}
+      {loadError() && <p class="message error">{t(loadError()) || loadError()}</p>}
 
       <div class="history-actions">
-        <button type="button" class="btn-ghost" onClick={handleClear}>
+        <button type="button" class="btn-ghost" onClick={() => setConfirmClear(true)}>
           {t("clipboard.clear")}
         </button>
       </div>
@@ -219,7 +221,22 @@ export function ClipboardHistory() {
         </For>
       </ul>
 
-      {entries().length === 0 && !error() && <p class="empty">{t("clipboard.empty")}</p>}
+      {entries().length === 0 && !loadError() && <p class="empty">{t("clipboard.empty")}</p>}
+
+      {/* 清空确认（0.2.8：替代 window.confirm，避免宿主原生对话框标题） */}
+      <ConfirmDialog
+        open={confirmClear()}
+        title={t("clipboard.clear")}
+        message={t("clipboard.clearConfirm")}
+        confirmLabel={t("clipboard.clear")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => {
+          setConfirmClear(false);
+          void handleClear();
+        }}
+        onCancel={() => setConfirmClear(false)}
+      />
     </>
   );
 }

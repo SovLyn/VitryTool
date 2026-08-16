@@ -47,6 +47,11 @@ vi.mock("../../api/lan-sync", () => ({
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async () => () => undefined),
 }));
+// 通知系统（0.2.8）：设置操作反馈经全局通知；mock 掉 invoke 依赖
+vi.mock("../../api/notify", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/notify")>();
+  return { ...actual, notify: vi.fn(async () => undefined) };
+});
 
 const mockedMaxEntries = vi.mocked(getMaxEntries);
 const mockedGetHotkey = vi.mocked(getHotkey);

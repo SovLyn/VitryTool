@@ -196,8 +196,24 @@ fn toggle_broadcast(app: &AppHandle) {
             }
             log::info!("tray: broadcast toggled -> {value}");
         }
-        Some(Err(e)) => log::error!("tray: broadcast toggle failed: {e}"),
-        None => log::warn!("tray: broadcast toggle skipped (lan-sync not registered)"),
+        Some(Err(e)) => {
+            log::error!("tray: broadcast toggle failed: {e}");
+            // 用户点了托盘项没反应 → 全局通知（契约 docs/api/notify.md 5.2）
+            crate::core::notify::notify_app(
+                app,
+                crate::core::notify::NotifyLevel::Error,
+                ERR_TRAY_UPDATE_FAILED,
+            );
+        }
+        None => {
+            log::warn!("tray: broadcast toggle skipped (lan-sync not registered)");
+            // 点了开关没生效（lan-sync 未注册）→ warning 通知
+            crate::core::notify::notify_app(
+                app,
+                crate::core::notify::NotifyLevel::Warning,
+                ERR_TRAY_UPDATE_FAILED,
+            );
+        }
     }
 }
 
@@ -214,8 +230,24 @@ fn toggle_receive(app: &AppHandle) {
             }
             log::info!("tray: receive toggled -> {value}");
         }
-        Some(Err(e)) => log::error!("tray: receive toggle failed: {e}"),
-        None => log::warn!("tray: receive toggle skipped (lan-sync not registered)"),
+        Some(Err(e)) => {
+            log::error!("tray: receive toggle failed: {e}");
+            // 用户点了托盘项没反应 → 全局通知（契约 docs/api/notify.md 5.2）
+            crate::core::notify::notify_app(
+                app,
+                crate::core::notify::NotifyLevel::Error,
+                ERR_TRAY_UPDATE_FAILED,
+            );
+        }
+        None => {
+            log::warn!("tray: receive toggle skipped (lan-sync not registered)");
+            // 点了开关没生效（lan-sync 未注册）→ warning 通知
+            crate::core::notify::notify_app(
+                app,
+                crate::core::notify::NotifyLevel::Warning,
+                ERR_TRAY_UPDATE_FAILED,
+            );
+        }
     }
 }
 

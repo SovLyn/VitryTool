@@ -2,7 +2,7 @@
 
 局域网信息共享工具（LAN information sharing）—— 用于在局域网内共享信息与文件的开源桌面应用。
 
-> **当前状态**：`0.2.7`，剪贴板历史（含收藏）+ 快速粘贴（全局快捷键小屏）+ 局域网剪贴板同步（lan-sync，libp2p + mDNS）已落地，含日志系统、主题、设置页、托盘（菜单文案随语言切换、lan-sync 广播/接收快速开关）与窗口状态记忆。
+> **当前状态**：`0.2.8`，剪贴板历史（含收藏）+ 快速粘贴（全局快捷键小屏）+ 局域网剪贴板同步（lan-sync，libp2p + mDNS）已落地，含日志系统、主题、设置页、全局通知（toast）、托盘（菜单文案随语言切换、lan-sync 广播/接收快速开关）与窗口状态记忆。
 
 ## 项目简介
 
@@ -16,6 +16,7 @@ VitryTool 的目标是提供轻量、本地的局域网信息共享能力，不�
   - 剪贴板历史（clipboard-history）——捕捉剪贴板变化并保存为可浏览、可回写、可收藏（置顶展示、豁免上限）的历史记录，见 [`docs/features/clipboard-history.md`](docs/features/clipboard-history.md) 与接口契约 [`docs/api/clipboard-history.md`](docs/api/clipboard-history.md)。
   - 快速粘贴（quick-paste）——全局快捷键 + 置顶小屏：按住唤出剪贴板历史（实时同步最新复制），滚轮选择，松开回写；含系统托盘与窗口状态记忆，见 [`docs/features/quick-paste.md`](docs/features/quick-paste.md) 与接口契约 [`docs/api/quick-paste.md`](docs/api/quick-paste.md)。
   - 局域网剪贴板同步（lan-sync）——本机复制自动广播，其他终端的收件箱按来源节点分桶展示（每端最新 8 条），点击写回；libp2p（mDNS 发现 + gossipsub 广播），纯局域网，见 [`docs/features/lan-sync.md`](docs/features/lan-sync.md) 与接口契约 [`docs/api/lan-sync.md`](docs/api/lan-sync.md)。
+  - 全局通知（notify）——右上角玻璃 toast：操作结果（回写/保存等）与后端内部错误（快捷键注册失败、托盘开关失败、lan-sync 节点异常等）统一经 `app://notify` 通道展示，见 [`docs/features/notify.md`](docs/features/notify.md) 与接口契约 [`docs/api/notify.md`](docs/api/notify.md)。
 - **规划中**：文件/图片字节传输、接收器模式、黑名单等，见 [`docs/features/lan-sync.md`](docs/features/lan-sync.md) 待办与 TODO.md。
 - 功能进度与版本变化记录在 `CHANGELOG.md`。
 
@@ -79,7 +80,7 @@ pnpm tauri build      # 桌面端打包
 
 ## 版本管理
 
-当前版本 `0.2.7`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
+当前版本 `0.2.8`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
 
 ## 隐私
 

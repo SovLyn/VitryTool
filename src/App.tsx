@@ -2,6 +2,7 @@ import "./App.css";
 import { createEffect, createSignal, For, onCleanup, onMount } from "solid-js";
 import { LAN_INBOX_UPDATED_EVENT } from "./api/lan-sync";
 import { setTrayLabels } from "./api/quick-paste";
+import { NotificationProvider } from "./components/NotificationProvider";
 import { ClipboardHistory } from "./features/clipboard-history/ClipboardHistory";
 import { startClipboardCapture } from "./features/clipboard-history/listener";
 import { Inbox } from "./features/lan-sync/Inbox";
@@ -62,50 +63,54 @@ function App() {
         : t("settings.title");
 
   return (
-    <div class="app-shell">
-      <aside class="sidebar">
-        <nav class="sidebar-nav">
-          <For each={NAV_ITEMS}>
-            {(item) => (
-              <button
-                type="button"
-                class={view() === item.view ? "nav-item active" : "nav-item"}
-                onClick={() => setView(item.view)}
-              >
-                <span class="nav-item-label">{t(item.labelKey)}</span>
-                {item.view === "inbox" && unread() > 0 && (
-                  <span class="nav-badge">{unread()}</span>
-                )}
-              </button>
-            )}
-          </For>
-        </nav>
-        <div class="sidebar-bottom">
-          <button
-            type="button"
-            class={view() === "settings" ? "nav-item active" : "nav-item"}
-            onClick={() => setView("settings")}
-          >
-            <span class="nav-item-label">{t("settings.title")}</span>
-          </button>
-        </div>
-      </aside>
+    <>
+      {/* 全局通知（0.2.8）：仅主窗口挂载；小屏 popup 不渲染（契约 notify 5.6） */}
+      <NotificationProvider />
+      <div class="app-shell">
+        <aside class="sidebar">
+          <nav class="sidebar-nav">
+            <For each={NAV_ITEMS}>
+              {(item) => (
+                <button
+                  type="button"
+                  class={view() === item.view ? "nav-item active" : "nav-item"}
+                  onClick={() => setView(item.view)}
+                >
+                  <span class="nav-item-label">{t(item.labelKey)}</span>
+                  {item.view === "inbox" && unread() > 0 && (
+                    <span class="nav-badge">{unread()}</span>
+                  )}
+                </button>
+              )}
+            </For>
+          </nav>
+          <div class="sidebar-bottom">
+            <button
+              type="button"
+              class={view() === "settings" ? "nav-item active" : "nav-item"}
+              onClick={() => setView("settings")}
+            >
+              <span class="nav-item-label">{t("settings.title")}</span>
+            </button>
+          </div>
+        </aside>
 
-      <section class="content">
-        <header class="toolbar">
-          <span class="toolbar-title">{toolbarTitle()}</span>
-        </header>
-        <div class="content-body">
-          {view() === "history" ? (
-            <ClipboardHistory />
-          ) : view() === "inbox" ? (
-            <Inbox onSeen={() => setUnread(0)} />
-          ) : (
-            <Settings />
-          )}
-        </div>
-      </section>
-    </div>
+        <section class="content">
+          <header class="toolbar">
+            <span class="toolbar-title">{toolbarTitle()}</span>
+          </header>
+          <div class="content-body">
+            {view() === "history" ? (
+              <ClipboardHistory />
+            ) : view() === "inbox" ? (
+              <Inbox onSeen={() => setUnread(0)} />
+            ) : (
+              <Settings />
+            )}
+          </div>
+        </section>
+      </div>
+    </>
   );
 }
 

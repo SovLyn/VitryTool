@@ -3,6 +3,9 @@
     "title": "VitryTool",
     "tagline": "LAN information sharing tool"
   },
+  "common": {
+    "cancel": "Cancel"
+  },
   "clipboard": {
     "title": "Clipboard History",
     "empty": "No clipboard entries yet. Copy something and it will show up here.",
@@ -90,5 +93,18 @@
     "node_not_running": "Sync node is not running, please restart the app",
     "peer_node_error": "Sync node error, check the logs",
     "too_large": "Content too large to broadcast"
+  },
+  "notify": {
+    "unknown": "An unknown error occurred ({code})",
+    "dismiss": "Dismiss notification",
+    "testTitle": "Notification Tester",
+    "testDesc": "Send a test notification to verify the channel and rendering (dev builds only)",
+    "testLevel": "Level",
+    "testCode": "Code / i18n key",
+    "testCodePlaceholder": "e.g. clipboard.copied",
+    "testParams": "Params (JSON, optional)",
+    "testParamsPlaceholder": "e.g. {\"count\":3}",
+    "testParamsInvalid": "Params must be a valid JSON object",
+    "testSend": "Send notification"
   }
 }

@@ -20,6 +20,8 @@ import {
   type LanInboxEntry,
   type LanInboxNode,
 } from "../../api/lan-sync";
+import { notify } from "../../api/notify";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { useI18n } from "../../i18n";
 
 /** 条目类型标记（与剪贴板历史同款规则：html > rtf > text > files > image）。 */
@@ -57,8 +59,10 @@ export function Inbox(props: InboxProps) {
   const { t } = useI18n();
   const [nodes, setNodes] = createSignal<LanInboxNode[]>([]);
   const [receiveEnabled, setReceiveEnabled] = createSignal(true);
-  const [error, setError] = createSignal("");
-  const [notice, setNotice] = createSignal("");
+  /** 仅初次加载失败保留内联错误态（契约 notify 5.6）；操作反馈走全局通知。 */
+  const [loadError, setLoadError] = createSignal("");
+  /** 清空确认对话框（替代 window.confirm，0.2.8）。 */
+  const [confirmClear, setConfirmClear] = createSignal(false);
   /** 上一次刷新见过的条目 id（用于「新到达」高亮）；首次加载不标记。 */
   const prevSeen = new Set<string>();
   const newIds = new Set<string>();
@@ -84,9 +88,9 @@ export function Inbox(props: InboxProps) {
         props.onSeen?.();
       }
       setNodes(next);
-      setError("");
+      setLoadError("");
     } catch (err) {
-      setError(t(getErrorCode(err) || "lanSync.storage_error"));
+      setLoadError(t(getErrorCode(err) || "lanSync.storage_error"));
     }
   }
 
@@ -108,10 +112,9 @@ export function Inbox(props: InboxProps) {
   async function handleWriteBack(entry: LanInboxEntry) {
     try {
       await writeLanInboxEntry(entry.id);
-      setNotice(t("lanSync.writtenBack"));
-      setError("");
+      await notify({ level: "success", code: "lanSync.writtenBack" });
     } catch (err) {
-      setError(t(getErrorCode(err) || "lanSync.entry_not_found"));
+      await notify({ level: "error", code: getErrorCode(err) || "lanSync.entry_not_found" });
     }
   }
 
@@ -119,16 +122,15 @@ export function Inbox(props: InboxProps) {
     try {
       await deleteLanInboxEntry(entry.id);
     } catch (err) {
-      setError(t(getErrorCode(err) || "lanSync.entry_not_found"));
+      await notify({ level: "error", code: getErrorCode(err) || "lanSync.entry_not_found" });
     }
   }
 
   async function handleClear() {
-    if (!window.confirm(t("lanSync.clearConfirm"))) return;
     try {
       await clearLanInbox();
     } catch (err) {
-      setError(t(getErrorCode(err) || "lanSync.storage_error"));
+      await notify({ level: "error", code: getErrorCode(err) || "lanSync.storage_error" });
     }
   }
 
@@ -136,7 +138,7 @@ export function Inbox(props: InboxProps) {
     <section class="inbox-page">
       <Show when={nodes().length > 0}>
         <div class="history-actions">
-          <button type="button" class="btn-ghost" onClick={() => void handleClear()}>
+          <button type="button" class="btn-ghost" onClick={() => setConfirmClear(true)}>
             {t("lanSync.clear")}
           </button>
         </div>
@@ -201,16 +203,26 @@ export function Inbox(props: InboxProps) {
         </div>
       </Show>
 
-      <Show when={notice()}>
+      {loadError() && (
         <div class="settings-row">
-          <span class="message notice">{notice()}</span>
+          <span class="message error">{loadError()}</span>
         </div>
-      </Show>
-      <Show when={error()}>
-        <div class="settings-row">
-          <span class="message error">{error()}</span>
-        </div>
-      </Show>
+      )}
+
+      {/* 清空确认（0.2.8：替代 window.confirm，避免宿主原生对话框标题） */}
+      <ConfirmDialog
+        open={confirmClear()}
+        title={t("lanSync.clear")}
+        message={t("lanSync.clearConfirm")}
+        confirmLabel={t("lanSync.clear")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => {
+          setConfirmClear(false);
+          void handleClear();
+        }}
+        onCancel={() => setConfirmClear(false)}
+      />
     </section>
   );
 }

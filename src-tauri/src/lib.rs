@@ -71,6 +71,8 @@ pub fn run() {
             features::lan_sync::write_lan_inbox_entry,
             features::lan_sync::delete_lan_inbox_entry,
             features::lan_sync::clear_lan_inbox,
+            // 通知（core/notify，契约 docs/api/notify.md）
+            core::notify::notify,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -78,6 +80,9 @@ pub fn run() {
     // 退出清理：停止 libp2p 节点线程（RunEvent::Exit）
     app.run(|app_handle, event| {
         if let tauri::RunEvent::Exit = event {
+            // 先置位关闭标记，消费者线程据此不误报「节点运行时错误」通知
+            // （正常退出 vs 节点崩溃的区分，见 docs/api/notify.md 5.2）
+            features::lan_sync::state::mark_shutting_down();
             if let Some(mut node) = app_handle
                 .state::<AppState>()
                 .peer_node

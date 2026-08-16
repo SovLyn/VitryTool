@@ -166,4 +166,4 @@ pub struct LanSyncStatus { peer_id: String, terminal_name: String, broadcast_ena
 
 ## 7. 未决问题（转 TODO，不进首版）
 
-- 图片/文件字节传输（含 gossipsub 分片）；接收器模式（立即写回且无法发送）；黑名单；收件箱收藏/跨端转发；开关快捷键；手动添加对端；libp2p-mdns Windows 虚拟网卡组播出口根治；全局错误通知 UI；重置身份入口。
+- 图片/文件字节传输（含 gossipsub 分片）；接收器模式（立即写回且无法发送）；黑名单；收件箱收藏/跨端转发；开关快捷键；手动添加对端；libp2p-mdns Windows 虚拟网卡组播出口根治；重置身份入口。（「全局错误通知 UI」已于 0.2.8 完成，见 `docs/api/notify.md`。）
