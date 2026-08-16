@@ -33,7 +33,7 @@ VitryTool 的目标是提供轻量、本地的局域网信息共享能力，不�
 
 ## 开发
 
-环境要求：Rust（stable）、Node.js、pnpm（依赖管理）。
+环境要求：Rust（stable）、Node.js 22+、pnpm（依赖管理）。
 
 ```bash
 pnpm install          # 安装前端依赖

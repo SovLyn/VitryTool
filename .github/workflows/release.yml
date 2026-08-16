@@ -36,7 +36,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 与 CI 一致：Node 22（jsdom 30 的 undici 8 需要 Node 22+ 的 webidl API）
+          node-version: 22
           cache: pnpm
 
       - name: Install frontend dependencies

@@ -44,7 +44,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 22：jsdom 30 的 undici 8 依赖 `webidl.util.markAsUncloneable`（Node 22+ API），
+          # Node 20 下 vitest forks worker 启动崩溃（与本地开发版本一致）
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
