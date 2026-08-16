@@ -6,7 +6,7 @@
 //! - 快捷键走 `HotkeyRecorder` + 后端 `setHotkey`（全局注册 + 持久化，契约见
 //!   `docs/api/quick-paste.md`）；保存成功提示、失败回滚显示。
 
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
   getErrorCode,
   getMaxEntries,
@@ -14,6 +14,7 @@ import {
 } from "../../api/clipboard-history";
 import {
   getLanSyncStatus,
+  LAN_SETTINGS_UPDATED_EVENT,
   setLanSyncBroadcast,
   setLanSyncReceive,
   setLanSyncTerminalName,
@@ -23,6 +24,7 @@ import { getHotkey, getHotkeyCapability, setHotkey } from "../../api/quick-paste
 import { locales, useI18n, type Locale } from "../../i18n";
 import { useTheme, type Theme } from "../../theme";
 import { HotkeyRecorder } from "../quick-paste/HotkeyRecorder";
+import { listen } from "@tauri-apps/api/event";
 
 const THEME_OPTIONS: { value: Theme; labelKey: string }[] = [
   { value: "light", labelKey: "settings.themeLight" },
@@ -65,14 +67,28 @@ export function Settings() {
       .then((hk) => setHotkeyValue(hk ?? ""))
       .catch((err) => setError(t(getErrorCode(err) || "quickPaste.storage_error")));
 
-    void getLanSyncStatus()
-      .then((s) => {
-        setLanStatus(s);
-        setTerminalInput(s.terminalName);
-        setSavedTerminal(s.terminalName);
-      })
-      .catch((err) => setError(t(getErrorCode(err) || "lanSync.peer_node_error")));
+    refreshLanStatus();
+
+    // 托盘快速开关（0.2.7）：后端切换广播/接收后 emit 设置变化事件，这里实时刷新开关状态
+    const unlisten = listen(LAN_SETTINGS_UPDATED_EVENT, () => {
+      void refreshLanStatus();
+    });
+    onCleanup(() => {
+      void unlisten.then((fn) => fn());
+    });
   });
+
+  /** 拉取 lan-sync 状态（初始加载 + 设置变化事件刷新）。 */
+  async function refreshLanStatus() {
+    try {
+      const s = await getLanSyncStatus();
+      setLanStatus(s);
+      setTerminalInput((prev) => prev || s.terminalName);
+      setSavedTerminal(s.terminalName);
+    } catch (err) {
+      setError(t(getErrorCode(err) || "lanSync.peer_node_error"));
+    }
+  }
 
   /** 失焦保存：有效则写后端，无效（越界/非整数）则恢复为已保存值。 */
   async function saveMaxOnBlur() {

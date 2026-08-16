@@ -60,6 +60,8 @@ pub fn run() {
             features::quick_paste::get_hotkey_capability,
             features::quick_paste::quick_paste_ready,
             features::quick_paste::quick_paste_close,
+            // 托盘（core/tray，契约 quick-paste 5.5：菜单文案 i18n）
+            core::tray::set_tray_labels,
             // 局域网同步（features/lan_sync）
             features::lan_sync::get_lan_sync_status,
             features::lan_sync::set_lan_sync_broadcast,

@@ -29,6 +29,24 @@ vi.mock("../../api/quick-paste", () => ({
   setHotkey: vi.fn(),
   getHotkeyCapability: vi.fn(),
 }));
+vi.mock("../../api/lan-sync", () => ({
+  getLanSyncStatus: vi.fn(async () => ({
+    peerId: "test-peer",
+    terminalName: "test-host",
+    broadcastEnabled: true,
+    receiveEnabled: true,
+    nodeRunning: true,
+    peerCount: 0,
+  })),
+  setLanSyncBroadcast: vi.fn(async () => undefined),
+  setLanSyncReceive: vi.fn(async () => undefined),
+  setLanSyncTerminalName: vi.fn(async () => undefined),
+  LAN_INBOX_UPDATED_EVENT: "lan-sync://inbox-updated",
+  LAN_SETTINGS_UPDATED_EVENT: "lan-sync://settings-updated",
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async () => () => undefined),
+}));
 
 const mockedMaxEntries = vi.mocked(getMaxEntries);
 const mockedGetHotkey = vi.mocked(getHotkey);

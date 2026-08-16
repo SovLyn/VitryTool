@@ -53,6 +53,9 @@ export interface LanInboxResp {
 /** 收件箱变化通知事件（后端 → 前端）。 */
 export const LAN_INBOX_UPDATED_EVENT = "lan-sync://inbox-updated";
 
+/** 设置变化通知事件（0.2.7）：托盘/设置页切换广播/接收后触发，前端据此刷新开关状态。 */
+export const LAN_SETTINGS_UPDATED_EVENT = "lan-sync://settings-updated";
+
 /** 节点状态。 */
 export function getLanSyncStatus(): Promise<LanSyncStatus> {
   return invoke<LanSyncStatus>("get_lan_sync_status");

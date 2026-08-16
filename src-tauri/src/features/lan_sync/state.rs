@@ -21,6 +21,9 @@ use tauri::{AppHandle, Emitter, Manager};
 /// 收件箱变化通知事件名（契约第 2 节）。
 pub const INBOX_UPDATED_EVENT: &str = "lan-sync://inbox-updated";
 
+/// 设置变化通知事件名（0.2.7）：托盘 / 设置页切换开关后通知前端刷新。
+pub const SETTINGS_UPDATED_EVENT: &str = "lan-sync://settings-updated";
+
 /// 共享运行时状态。
 pub struct LanSyncShared {
     pub inbox: InboxData,
@@ -90,7 +93,65 @@ pub fn init(app: &AppHandle, event_rx: Receiver<NodeEvent>, self_peer_id: String
         broadcast_captured_entry(a, entry);
     }));
 
+    // 托盘快速开关（core::hooks）：读/写 shared 设置并持久化（与命令同路径）
+    crate::core::hooks::register_lan_sync_switches(crate::core::hooks::LanSyncSwitches {
+        broadcast_enabled: settings_broadcast_enabled,
+        receive_enabled: settings_receive_enabled,
+        set_broadcast: set_broadcast_flag,
+        set_receive: set_receive_flag,
+    });
+
     Ok(())
+}
+
+/// 读取当前广播开关（未初始化返回 false）。
+fn settings_broadcast_enabled() -> bool {
+    shared()
+        .map(|g| g.lock().unwrap().settings.broadcast_enabled)
+        .unwrap_or(false)
+}
+
+/// 读取当前接收开关（未初始化返回 false）。
+fn settings_receive_enabled() -> bool {
+    shared()
+        .map(|g| g.lock().unwrap().settings.receive_enabled)
+        .unwrap_or(false)
+}
+
+/// 设置广播开关并持久化（托盘快速开关；与 `set_lan_sync_broadcast` 命令同路径）。
+fn set_broadcast_flag(app: &AppHandle, enabled: bool) -> Result<bool, String> {
+    let Some(shared) = shared() else {
+        return Err("lan-sync not initialized".into());
+    };
+    let settings = {
+        let mut g = shared.lock().unwrap();
+        g.settings.broadcast_enabled = enabled;
+        g.settings.clone()
+    };
+    StoreBackend::new(app)
+        .and_then(|b| b.save_settings(&settings))
+        .map_err(|e| e.message)?;
+    log::info!("lan_sync: broadcast={enabled} (tray)");
+    let _ = app.emit(SETTINGS_UPDATED_EVENT, serde_json::json!({ "broadcast": enabled }));
+    Ok(enabled)
+}
+
+/// 设置接收开关并持久化（托盘快速开关；与 `set_lan_sync_receive` 命令同路径）。
+fn set_receive_flag(app: &AppHandle, enabled: bool) -> Result<bool, String> {
+    let Some(shared) = shared() else {
+        return Err("lan-sync not initialized".into());
+    };
+    let settings = {
+        let mut g = shared.lock().unwrap();
+        g.settings.receive_enabled = enabled;
+        g.settings.clone()
+    };
+    StoreBackend::new(app)
+        .and_then(|b| b.save_settings(&settings))
+        .map_err(|e| e.message)?;
+    log::info!("lan_sync: receive={enabled} (tray)");
+    let _ = app.emit(SETTINGS_UPDATED_EVENT, serde_json::json!({ "receive": enabled }));
+    Ok(enabled)
 }
 
 /// 本机主机名（设置缺省终端名用）。

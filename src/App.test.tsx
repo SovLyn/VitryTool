@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "@solidjs/testing-library";
 import { I18nProvider } from "./i18n";
 import App from "./App";
+import { setTrayLabels } from "./api/quick-paste";
 
 // 剪贴板历史依赖 Tauri 宿主能力，测试中全部 mock（组件纯渲染验证）
 vi.mock("tauri-plugin-clipboard-x-api", () => ({
@@ -18,6 +19,10 @@ vi.mock("./api/clipboard-history", () => ({
   getMaxEntries: vi.fn(async () => 64),
   setMaxEntries: vi.fn(async (n: number) => ({ maxEntries: n, evicted: 0 })),
   writeClipboardEntry: vi.fn(async () => undefined),
+}));
+// 托盘文案同步：mock 掉 setTrayLabels（invoke 依赖 Tauri 宿主）
+vi.mock("./api/quick-paste", () => ({
+  setTrayLabels: vi.fn(async () => undefined),
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
@@ -59,5 +64,15 @@ describe("App", () => {
   it("空历史时显示引导文案", () => {
     const { getByText } = renderApp();
     expect(getByText(/暂无剪贴记录/)).toBeTruthy();
+  });
+
+  it("挂载时以默认语言下发托盘菜单文案（契约 quick-paste 5.5）", async () => {
+    renderApp();
+    expect(setTrayLabels).toHaveBeenCalledWith(
+      "显示主窗口",
+      "退出",
+      "剪贴板广播",
+      "剪贴板接收",
+    );
   });
 });

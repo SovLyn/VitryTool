@@ -5,7 +5,7 @@
 use super::service::{
     inbox_for_display, validate_terminal_name, InboxData, LanSyncStatus, TERMINAL_NAME_MAX_LEN,
 };
-use super::state::{shared, INBOX_UPDATED_EVENT};
+use super::state::{shared, INBOX_UPDATED_EVENT, SETTINGS_UPDATED_EVENT};
 use super::store::{InboxStore, SettingsStore, StoreBackend};
 use crate::core::error::ApiError;
 use crate::core::state::AppState;
@@ -78,6 +78,7 @@ pub async fn set_lan_sync_broadcast(app: AppHandle, enabled: bool) -> Result<(),
     };
     let backend = StoreBackend::new(&app).map_err(storage_err)?;
     backend.save_settings(&settings).map_err(storage_err)?;
+    let _ = app.emit(SETTINGS_UPDATED_EVENT, serde_json::json!({ "broadcast": enabled }));
     log::info!("lan_sync: broadcast={enabled}");
     Ok(())
 }
@@ -93,6 +94,7 @@ pub async fn set_lan_sync_receive(app: AppHandle, enabled: bool) -> Result<(), A
     };
     let backend = StoreBackend::new(&app).map_err(storage_err)?;
     backend.save_settings(&settings).map_err(storage_err)?;
+    let _ = app.emit(SETTINGS_UPDATED_EVENT, serde_json::json!({ "receive": enabled }));
     log::info!("lan_sync: receive={enabled}");
     Ok(())
 }

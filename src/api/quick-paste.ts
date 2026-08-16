@@ -36,3 +36,16 @@ export interface HotkeyCapability {
 export function getHotkeyCapability(): Promise<HotkeyCapability> {
   return invoke<HotkeyCapability>("get_hotkey_capability");
 }
+
+/**
+ * 更新托盘菜单文案（「显示主窗口」「退出」+ lan-sync 快速开关「广播」「接收」），
+ * 文案由前端 i18n 提供（契约 `docs/api/quick-paste.md` 5.5；后端不持有界面文案）。
+ */
+export function setTrayLabels(
+  showMain: string,
+  quit: string,
+  broadcast: string,
+  receive: string,
+): Promise<void> {
+  return invoke<void>("set_tray_labels", { showMain, quit, broadcast, receive });
+}

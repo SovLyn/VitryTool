@@ -2,7 +2,7 @@
 
 - 状态：`已实现`
 - 关联功能文档：[docs/features/quick-paste.md](../features/quick-paste.md)
-- 版本影响：`minor`（0.1.2 → 0.2.0，已签发）；`patch`（0.2.2 → 0.2.3，已签发：平台能力检测 + 设置页警告）；`patch`（0.2.3 → 0.2.4，已签发：小屏收藏交互，见 5.7）
+- 版本影响：`minor`（0.1.2 → 0.2.0，已签发）；`patch`（0.2.2 → 0.2.3，已签发：平台能力检测 + 设置页警告）；`patch`（0.2.3 → 0.2.4，已签发：小屏收藏交互，见 5.7）；`patch`（0.2.5 → 0.2.6，已签发：托盘菜单文案接入 i18n，见 5.5）；`patch`（0.2.6 → 0.2.7，已签发：托盘 lan-sync 快速开关，见 5.5）
 
 ## 1. 概述
 
@@ -23,6 +23,7 @@
 | `quickPasteReady` | 前端 → 后端 | popup 前端加载完成握手：若已有挂起的按下事件则补发 `show` |
 | `quickPasteClose` | 前端 → 后端 | popup 前端完成回写（或取消）后请求关闭：隐藏窗口、复位状态 |
 | `getHotkeyCapability` | 前端 → 后端 | 检测当前环境是否支持全局快捷键（如 Linux Wayland 会话不支持）；`supported=false` 时设置页隐藏录制入口并显示警告（见 5.8） |
+| `setTrayLabels` | 前端 → 后端 | 更新托盘菜单文案（「显示主窗口」「退出」+ lan-sync 快速开关「剪贴板广播」「剪贴板接收」），文案由前端 i18n 提供（见 5.5） |
 
 事件（后端 → popup 前端）：
 
@@ -65,6 +66,7 @@ type HotkeyCapabilityResp = { supported: boolean };
 | `quick_paste.invalid_hotkey` | 格式非法（无主键 / 无修饰键 / 仅 Shift 修饰 / 未知键名） | 快捷键无效：需包含至少一个 Ctrl / Alt / Win 修饰键 | Invalid shortcut: needs at least one of Ctrl / Alt / Win |
 | `quick_paste.register_failed` | 全局注册失败（系统占用、插件底层错误） | 快捷键注册失败，可能已被其他程序占用 | Failed to register shortcut (may be taken by another app) |
 | `quick_paste.storage_error` | 设置存储读写失败 | 快捷键设置保存失败 | Failed to save shortcut settings |
+| `quick_paste.tray_update_failed` | 托盘菜单文案更新失败（托盘未初始化） | 托盘菜单更新失败 | Failed to update tray menu |
 
 ## 5. 行为说明
 
@@ -128,9 +130,10 @@ type HotkeyCapabilityResp = { supported: boolean };
 ### 5.5 托盘与关闭行为
 
 - 主窗口 `CloseRequested`：`prevent_close()` + `hide()`（进程常驻，剪贴板监听与定时清理继续——WebView 隐藏后仍存活，ADR 0001 前提不变）。
-- 托盘图标：左键单击 / 双击唤出主窗口（`show` + `set_focus` + `unminimize`）；菜单两项——「显示主窗口」「退出」。
+- 托盘图标：左键单击 / 双击唤出主窗口（`show` + `set_focus` + `unminimize`）；菜单四项——「显示主窗口」「退出」「剪贴板广播」「剪贴板接收」。
 - 「退出」：`app.exit(0)`；window-state 插件在窗口关闭流程中保存主窗口位置 / 大小。
-- **托盘菜单文案后端硬编码中文**（Rust 侧无 i18n 基建；后续如需国际化再评估）。
+- **托盘菜单文案 i18n（0.2.6；快速开关文案 0.2.7）**：菜单文案由**前端 i18n 提供**（后端不持有界面文案，符合「后端不输出界面文案」铁律）——主窗口加载后及语言切换时调用 `setTrayLabels`，后端更新菜单项文本；错误码 `quick_paste.tray_update_failed`。托盘初始化时仍以默认文案创建，主窗口首次下发后生效。
+- **lan-sync 快速开关（0.2.7）**：托盘菜单「剪贴板广播」「剪贴板接收」为**可勾选项**（CheckMenuItem），勾选态反映当前开关；点击即切换并持久化（与设置页 `setLanSyncBroadcast` / `setLanSyncReceive` 同一路径，经 `core::hooks` 的开关钩子读写，见契约 lan-sync 5.7）。未注册（lan-sync 未初始化）时点击仅记日志。切换后后端 emit `lan-sync://settings-updated`，设置页监听并实时刷新开关状态（无需重进页面）。
 
 ### 5.6 窗口状态记忆
 
@@ -163,7 +166,7 @@ type HotkeyCapabilityResp = { supported: boolean };
 
 ## 7. 未决问题
 
-- [ ] 回写是否触发监听：按既有经验不触发，实测确认（见 5.7）。
-- [ ] 托盘菜单文案国际化：暂硬编码中文，评估后接入 i18n。
+- [x] 回写是否触发监听：按既有经验不触发，实测确认（见 5.7）。
+- [x] 托盘菜单文案国际化：0.2.6 已接入——文案由前端 i18n 提供，经 `setTrayLabels` 下发（见 5.5）。
 - [ ] `Window::cursor_position` API 可用性：实现时验证；若不可用则小屏固定显示于光标所在显示器中央 / 右下角。
 - [ ] 小屏跟随鼠标的物理 / 逻辑像素换算：以光标物理坐标 + 窗口物理尺寸 clamp 到显示器物理边界。

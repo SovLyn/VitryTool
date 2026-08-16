@@ -1,6 +1,6 @@
 {
   "name": "vitrytool",
-  "version": "0.2.5",
+  "version": "0.2.7",
   "description": "A handy tool for lan information sharing and other staff",
   "type": "module",
   "scripts": {
@@ -20,6 +20,7 @@
     "tauri-plugin-clipboard-x-api": "^2.0.2"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@solidjs/testing-library": "^0.8.10",
     "@tauri-apps/cli": "^2",
     "jsdom": "^30.0.1",

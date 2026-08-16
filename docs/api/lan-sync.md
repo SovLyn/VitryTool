@@ -154,11 +154,14 @@ pub struct LanSyncStatus { peer_id: String, terminal_name: String, broadcast_ena
 - 关广播：不再发布新内容，节点仍运行、仍接收、仍公告自身。
 - 关接收：收件箱不再入新内容（已有内容保留），节点仍公告自身（其他终端可见）。
 - 开关切换不重启节点。
+- **入口（0.2.7）**：除设置页外，系统托盘菜单提供「剪贴板广播」「剪贴板接收」两个可勾选项（CheckMenuItem）快速开关——经 `core::hooks` 注册的开关钩子读写（与 `setLanSyncBroadcast` / `setLanSyncReceive` 命令同一共享态与持久化路径），勾选态随设置实时同步；文案由前端 i18n 经 `setTrayLabels` 下发（契约 quick-paste 5.5）。
+- **设置变化事件（0.2.7）**：托盘或设置页切换广播/接收后，后端 emit `lan-sync://settings-updated`（载荷含对应字段），设置页监听并重新拉取 `getLanSyncStatus` 实时刷新开关状态。
 
 ## 6. 破坏性影响
 
 - 无：全新功能，不动既有命令/事件/存储。
 - 唯一内部改动：`capture_clipboard` 在产生新条目后调用 `core` 广播钩子（可选通道，默认空实现，不影响既有行为）；`Cargo.toml` 新增依赖（libp2p、tokio、tauri-plugin-single-instance）。
+- 0.2.5 起 `core::hooks` 新增 lan-sync 开关钩子（`register_lan_sync_switches`，未注册时托盘读写为空操作）。
 - 版本 0.2.5 三处同步（Cargo.toml / tauri.conf.json / package.json）。
 
 ## 7. 未决问题（转 TODO，不进首版）

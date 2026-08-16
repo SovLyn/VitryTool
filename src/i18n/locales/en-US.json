@@ -42,6 +42,7 @@
     "invalid_hotkey": "Invalid shortcut: needs at least one of Ctrl / Alt / Win",
     "register_failed": "Failed to register shortcut (may be taken by another app)",
     "storage_error": "Failed to save shortcut settings",
+    "trayUpdateFailed": "Failed to update tray menu",
     "unsupportedTitle": "Global shortcuts are unavailable on this system",
     "unsupportedDesc": "A Wayland session was detected: global shortcuts rely on X11 and won't fire. Switch to an X11 session, or set GDK_BACKEND=x11 and restart the app."
   },
@@ -57,6 +58,12 @@
     "clipboard": "Clipboard",
     "maxEntries": "Max entries",
     "maxEntriesDesc": "History retention limit (1–1024)"
+  },
+  "tray": {
+    "showMain": "Show Main Window",
+    "quit": "Quit",
+    "broadcast": "Clipboard Broadcast",
+    "receive": "Clipboard Receive"
   },
   "lanSync": {
     "title": "Inbox",

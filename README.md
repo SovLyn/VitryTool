@@ -2,7 +2,7 @@
 
 局域网信息共享工具（LAN information sharing）—— 用于在局域网内共享信息与文件的开源桌面应用。
 
-> **当前状态**：`0.2.5`，剪贴板历史（含收藏）+ 快速粘贴（全局快捷键小屏）+ 局域网剪贴板同步（lan-sync，libp2p + mDNS）已落地，含日志系统、主题、设置页、托盘与窗口状态记忆。
+> **当前状态**：`0.2.7`，剪贴板历史（含收藏）+ 快速粘贴（全局快捷键小屏）+ 局域网剪贴板同步（lan-sync，libp2p + mDNS）已落地，含日志系统、主题、设置页、托盘（菜单文案随语言切换、lan-sync 广播/接收快速开关）与窗口状态记忆。
 
 ## 项目简介
 
@@ -33,7 +33,7 @@ VitryTool 的目标是提供轻量、本地的局域网信息共享能力，不�
 
 ## 开发
 
-环境要求：Rust（stable）、Node.js、pnpm（依赖管理；亦可使用 deno 执行脚本）。
+环境要求：Rust（stable）、Node.js、pnpm（依赖管理）。
 
 ```bash
 pnpm install          # 安装前端依赖
@@ -71,7 +71,6 @@ pnpm tauri build      # 桌面端打包
 - **剪贴板历史性能**：历史列表通过 tauri-plugin-store 整体序列化持久化，接近上限（1024 条富文本）时读写存在性能开销，后续版本优化。
 - **连续复制**：Windows 剪贴板监视存在固有延迟，极速连续复制可能丢失中间内容。
 - 剪贴板历史**明文存储**敏感内容（密码等），提供单条删除与清空全部；暂停监听功能规划中。
-- 托盘菜单文案暂为中文（未接入 i18n）。
 - **全局快捷键在 Linux Wayland 会话下不可用**：底层库仅实现 X11 后端，Wayland 下注册「成功」但按下不触发；设置页会检测并显示警告（不提供设置）。可切换 X11 会话，或设置 `GDK_BACKEND=x11` 后重启尝试（依赖合成器对 XWayland 的支持）。
 - 快速粘贴小屏为透明置顶窗口：Windows 下 backdrop-filter 仅作用于窗口内内容（无法模糊桌面），系统阴影不可用。
 - **局域网同步（lan-sync，规划中）已知限制（调研实测结论）**：
@@ -80,7 +79,7 @@ pnpm tauri build      # 桌面端打包
 
 ## 版本管理
 
-当前版本 `0.2.5`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
+当前版本 `0.2.7`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
 
 ## 隐私
 
@@ -92,7 +91,7 @@ pnpm tauri build      # 桌面端打包
 
 ## 安全
 
-发现安全问题请直接提交 [issue](https://github.com/)（优先选择），见 [`SECURITY.md`](SECURITY.md)。
+发现安全问题请直接提交 [issue](https://github.com/SovLyn/VitryTool/issues)（优先选择），见 [`SECURITY.md`](SECURITY.md)。
 
 ## 许可证
 

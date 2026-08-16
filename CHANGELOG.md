@@ -2,6 +2,34 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
+## [0.2.7] - 2026-08-16
+
+### 新增
+
+- **托盘 lan-sync 快速开关**（契约 `docs/api/quick-paste.md` 5.5、`docs/api/lan-sync.md` 5.7）：托盘菜单新增「剪贴板广播」「剪贴板接收」两个可勾选项（CheckMenuItem），勾选态反映当前开关，点击即切换并持久化——经 `core::hooks` 新增的开关钩子（`register_lan_sync_switches`）读写，与设置页 `setLanSyncBroadcast` / `setLanSyncReceive` 同一共享态与持久化路径；文案随 `setTrayLabels` 由前端 i18n 下发（新增 `tray.broadcast` / `tray.receive` 双语键）。后端 dt +2（开关钩子未注册返回 None / 注册后委托函数），前端 vitest 断言更新。
+- **设置实时同步（0.2.7）**：托盘或设置页切换广播/接收后，后端 emit `lan-sync://settings-updated`，设置页监听该事件重新拉取 `getLanSyncStatus` 刷新开关状态——托盘切换后无需重进设置页即可看到最新状态。
+- **品牌图标落地**：改用用户提供的 `src-tauri/icons/galaxy.svg`（唯一设计源），删除前端脚手架默认图标（`public/tauri.svg`、`public/vite.svg`、`src/assets/logo.svg` 默认内容），`index.html` favicon 指向 galaxy；dev/打包窗口图标经 tauri-build 读取 `icons/icon.ico` 自动生效。
+
+### 变更
+
+- 版本 0.2.6 → 0.2.7（三处同步）。
+- `setTrayLabels` 命令参数由 2 个扩展为 4 个（showMain / quit / broadcast / receive），契约 quick-paste 5.5 与命令表同步。
+
+## [0.2.6] - 2026-08-16
+
+### 新增
+
+- **托盘菜单文案接入 i18n**（契约 `docs/api/quick-paste.md` 5.5）：菜单文案由前端 i18n 提供，主窗口加载后及语言切换时经新命令 `setTrayLabels` 下发，后端不持有界面文案（符合「后端不输出界面文案」铁律）；错误码 `quick_paste.tray_update_failed`（双语文案）。后端 `set_tray_labels` 命令 dt 3 组（文案校验：合法 / 空与纯空白拒绝 / trim 后判空），前端新增 api 封装用例与 App 挂载下发断言。
+
+### 变更
+
+- 版本 0.2.5 → 0.2.6（三处同步）。
+- `tauri.conf.json` 构建命令由 `deno task dev/build` 改为 `pnpm dev` / `pnpm build`（仓库无 `deno.json`，此前 `pnpm tauri dev` 会失败；README 亦为 pnpm 方式）。
+- 回填仓库 URL：README issue 链接与 Cargo.toml `repository` 指向 `https://github.com/SovLyn/VitryTool`。
+- 新增 CI：`.github/workflows/ci.yml`（fmt + clippy + cargo test + vitest + tsc + pnpm build）。
+- 新增 CD：`.github/workflows/release.yml`（打 `v*` tag 触发 → tauri-action 三平台构建安装包 → GitHub Release 草稿，人工确认后发布）。
+- **品牌图标**：替换 Tauri 默认图标——SVG 源（`src-tauri/icons/galaxy.svg`）+ `scripts/render-icon.mjs`（resvg 渲染 1024 PNG，含居中旋转修复）+ `tauri icon` 生成全套（ico/icns/png）；设计：蓝色轨道环 + 中心球（SVG Repo 资源，象征局域网互联）；品牌规范见 `docs/design/brand.md`。新增 devDependency `@resvg/resvg-js`。
+
 ## [0.2.5] - 2026-08-14
 
 ### 新增

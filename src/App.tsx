@@ -1,6 +1,7 @@
 import "./App.css";
-import { createSignal, For, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount } from "solid-js";
 import { LAN_INBOX_UPDATED_EVENT } from "./api/lan-sync";
+import { setTrayLabels } from "./api/quick-paste";
 import { ClipboardHistory } from "./features/clipboard-history/ClipboardHistory";
 import { startClipboardCapture } from "./features/clipboard-history/listener";
 import { Inbox } from "./features/lan-sync/Inbox";
@@ -24,9 +25,21 @@ const NAV_ITEMS: { view: View; labelKey: string }[] = [
  * 收件箱页外收到新广播 → 侧栏「收件箱」显示未读徽标；进入收件箱页重置（Inbox onSeen）。
  */
 function App() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [view, setView] = createSignal<View>("history");
   const [unread, setUnread] = createSignal(0);
+
+  // 托盘菜单文案跟随语言（契约 quick-paste 5.5，0.2.6；快速开关文案 0.2.7）：
+  // 主窗口加载后及语言切换时下发本地化文案；失败仅记日志（托盘仍有默认文案兜底）。
+  createEffect(() => {
+    void locale(); // 依赖语言变化，触发重新下发
+    void setTrayLabels(
+      t("tray.showMain"),
+      t("tray.quit"),
+      t("tray.broadcast"),
+      t("tray.receive"),
+    ).catch((e) => console.warn("setTrayLabels failed:", e));
+  });
 
   // 应用级剪贴板捕捉：与页面视图无关，启动即监听（设置页 / 主窗口隐藏期间也持续）
   onMount(() => {

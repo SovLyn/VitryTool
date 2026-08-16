@@ -10,6 +10,7 @@
 | [api/README.md](api/README.md) | 前后端接口契约规范：接口规划仪式、命名、错误码、变更流程 | 新增/修改接口时 |
 | [api/TEMPLATE.md](api/TEMPLATE.md) | 新功能接口契约文档模板 | 每次功能探讨前置 |
 | [features/README.md](features/README.md) | 功能文档指南：每个功能一份详细文档 | 新功能签发时 |
+| [design/brand.md](design/brand.md) | 品牌视觉规范：Logo 语义 / 配色 / SVG 源与生成流程 / 图标应用位置 | 品牌或图标变更时 |
 | [versioning.md](versioning.md) | 版本变化约定 | 版本递增时 |
 
 ## 阅读顺序建议

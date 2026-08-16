@@ -6,6 +6,7 @@ import {
   quickPasteClose,
   quickPasteReady,
   setHotkey,
+  setTrayLabels,
 } from "./quick-paste";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -51,5 +52,24 @@ describe("quick-paste api 封装", () => {
 
     mockedInvoke.mockResolvedValueOnce({ supported: true });
     expect(await getHotkeyCapability()).toEqual({ supported: true });
+  });
+
+  it("setTrayLabels 传递托盘菜单文案（显示主窗口 / 退出 / 广播 / 接收）", async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+    await setTrayLabels("显示主窗口", "退出", "剪贴板广播", "剪贴板接收");
+    expect(mockedInvoke).toHaveBeenCalledWith("set_tray_labels", {
+      showMain: "显示主窗口",
+      quit: "退出",
+      broadcast: "剪贴板广播",
+      receive: "剪贴板接收",
+    });
+
+    await setTrayLabels("Show Main Window", "Quit", "Clipboard Broadcast", "Clipboard Receive");
+    expect(mockedInvoke).toHaveBeenCalledWith("set_tray_labels", {
+      showMain: "Show Main Window",
+      quit: "Quit",
+      broadcast: "Clipboard Broadcast",
+      receive: "Clipboard Receive",
+    });
   });
 });

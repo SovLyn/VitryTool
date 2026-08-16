@@ -1,9 +1,10 @@
 [package]
 name = "vitrytool"
-version = "0.2.5"
+version = "0.2.7"
 description = "A handy tool for lan information sharing and other staff"
 authors = ["SovLyn"]
 edition = "2021"
+repository = "https://github.com/SovLyn/VitryTool"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
