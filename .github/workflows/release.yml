@@ -8,6 +8,8 @@ on:
   push:
     tags:
       - "v*"
+  # 手动触发：tag 已存在但 release 未创建/需重跑时，可在 Actions 页手动运行
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -74,8 +76,9 @@ jobs:
         with:
           tauriScript: pnpm tauri
           args: --target ${{ matrix.target }}
-          tagName: ${{ github.ref_name }}
-          releaseName: "VitryTool ${{ github.ref_name }}"
+          # v__VERSION__ 由 tauri-action 从 package.json 版本自动替换（tag 触发与手动触发均正确）
+          tagName: v__VERSION__
+          releaseName: "VitryTool v__VERSION__"
           releaseDraft: true
           prerelease: false
           releaseBody: |
