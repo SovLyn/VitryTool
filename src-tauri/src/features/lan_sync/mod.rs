@@ -24,7 +24,8 @@ use tauri::Manager;
 /// 启动 lan-sync：加载/创建身份 → 启动节点（core/peer_node）→ 初始化业务状态（setup 调用）。
 pub fn init_node(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = app.path().app_data_dir()?;
-    let (keypair, created) = crate::core::peer_node::identity::load_or_create(&data_dir.join("peer-key.json"));
+    let (keypair, created) =
+        crate::core::peer_node::identity::load_or_create(&data_dir.join("peer-key.json"));
     let self_peer_id = keypair.public().to_peer_id().to_base58();
 
     let (event_tx, event_rx) = std::sync::mpsc::channel();
@@ -34,7 +35,10 @@ pub fn init_node(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         event_tx,
     })?;
 
-    *app.state::<crate::core::state::AppState>().peer_node.lock().unwrap() = Some(node);
+    *app.state::<crate::core::state::AppState>()
+        .peer_node
+        .lock()
+        .unwrap() = Some(node);
     state::init(app.handle(), event_rx, self_peer_id)?;
     let _ = created;
     Ok(())

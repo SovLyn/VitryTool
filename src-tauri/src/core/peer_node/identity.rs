@@ -20,7 +20,10 @@ pub fn load_or_create(path: &Path) -> (Keypair, bool) {
                 return (kp, false);
             }
             Err(e) => {
-                log::warn!("identity: corrupt keypair at {}, regenerating: {e}", path.display());
+                log::warn!(
+                    "identity: corrupt keypair at {}, regenerating: {e}",
+                    path.display()
+                );
             }
         }
     }

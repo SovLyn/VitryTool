@@ -37,7 +37,9 @@ pub struct StoreBackend {
 impl StoreBackend {
     pub fn new(app: &AppHandle) -> Result<Self, ApiError> {
         let data_dir = app.path().app_data_dir().map_err(storage_err)?;
-        let store = app.store(data_dir.join("clipboard.json")).map_err(storage_err)?;
+        let store = app
+            .store(data_dir.join("clipboard.json"))
+            .map_err(storage_err)?;
         Ok(Self { store })
     }
 }

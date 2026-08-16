@@ -309,11 +309,7 @@ mod unit {
     #[test]
     fn dedup_updates_captured_at() {
         let mut entries = vec![];
-        let outcome = dedup_promote_and_evict(
-            &mut entries,
-            entry("a", Some("same"), None),
-            64,
-        );
+        let outcome = dedup_promote_and_evict(&mut entries, entry("a", Some("same"), None), 64);
         assert_eq!(outcome.entry.captured_at, "2026-08-13T00:00:00Z");
 
         let mut later = entry("a", Some("same"), None);
@@ -351,7 +347,13 @@ mod unit {
     fn insert_triggers_immediate_eviction() {
         // entries[0] 最新、队尾最旧；插入超限后淘汰最旧（队尾 e2）
         let mut entries: Vec<ClipboardEntry> = (0..3)
-            .map(|i| entry(&format!("e{i}"), Some(&format!("t{i}")), Some(&format!("/img/{i}.png"))))
+            .map(|i| {
+                entry(
+                    &format!("e{i}"),
+                    Some(&format!("t{i}")),
+                    Some(&format!("/img/{i}.png")),
+                )
+            })
             .collect();
         let incoming = entry("new", Some("t99"), None);
         let outcome = dedup_promote_and_evict(&mut entries, incoming, 3);
@@ -373,7 +375,10 @@ mod unit {
         let orphans = orphan_files(&entries, &dir_files);
         assert_eq!(
             orphans,
-            vec![PathBuf::from("/img/orphan1.png"), PathBuf::from("/img/orphan2.png")]
+            vec![
+                PathBuf::from("/img/orphan1.png"),
+                PathBuf::from("/img/orphan2.png")
+            ]
         );
     }
 
@@ -437,7 +442,10 @@ mod unit {
     #[test]
     fn sort_keeps_recency_order_within_groups() {
         // 普通区按 capturedAt 倒序（稳定排序保持原相对序）
-        let mut entries = vec![entry("older", Some("a"), None), entry("newer", Some("b"), None)];
+        let mut entries = vec![
+            entry("older", Some("a"), None),
+            entry("newer", Some("b"), None),
+        ];
         entries[0].captured_at = "2026-08-13T00:00:00Z".to_string();
         entries[1].captured_at = "2026-08-13T01:00:00Z".to_string();
         sort_for_display(&mut entries);
@@ -497,21 +505,47 @@ mod unit {
     fn set_favorite_sets_clears_and_refreshes() {
         let mut entries = vec![entry("a", Some("x"), None), entry("b", Some("y"), None)];
 
-        assert!(set_favorite(&mut entries, "a", true, "2026-08-13T01:00:00Z"));
-        assert_eq!(entries[0].favorited_at.as_deref(), Some("2026-08-13T01:00:00Z"));
+        assert!(set_favorite(
+            &mut entries,
+            "a",
+            true,
+            "2026-08-13T01:00:00Z"
+        ));
+        assert_eq!(
+            entries[0].favorited_at.as_deref(),
+            Some("2026-08-13T01:00:00Z")
+        );
         assert!(entries[0].is_favorite());
 
         // 重复收藏 → 刷新收藏时间（收藏区重新置顶，幂等）
-        assert!(set_favorite(&mut entries, "a", true, "2026-08-13T02:00:00Z"));
-        assert_eq!(entries[0].favorited_at.as_deref(), Some("2026-08-13T02:00:00Z"));
+        assert!(set_favorite(
+            &mut entries,
+            "a",
+            true,
+            "2026-08-13T02:00:00Z"
+        ));
+        assert_eq!(
+            entries[0].favorited_at.as_deref(),
+            Some("2026-08-13T02:00:00Z")
+        );
 
         // 取消收藏 → 清空标志（不触发淘汰，调用方按契约容忍超限）
-        assert!(set_favorite(&mut entries, "a", false, "2026-08-13T03:00:00Z"));
+        assert!(set_favorite(
+            &mut entries,
+            "a",
+            false,
+            "2026-08-13T03:00:00Z"
+        ));
         assert!(!entries[0].is_favorite());
         assert!(entries[0].favorited_at.is_none());
 
         // 目标不存在 → false
-        assert!(!set_favorite(&mut entries, "missing", true, "2026-08-13T04:00:00Z"));
+        assert!(!set_favorite(
+            &mut entries,
+            "missing",
+            true,
+            "2026-08-13T04:00:00Z"
+        ));
     }
 
     #[test]

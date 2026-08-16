@@ -29,10 +29,7 @@ fn sample_entry(peer: &str, fp: &str, recv: &str) -> InboxEntry {
 fn memory_store_implements_traits() {
     let store = MemoryStore::default();
     assert_eq!(store.load_inbox().unwrap(), InboxData::default());
-    assert_eq!(
-        store.load_settings().unwrap(),
-        LanSettings::default()
-    );
+    assert_eq!(store.load_settings().unwrap(), LanSettings::default());
     let _: Result<(), ApiError> = store.save_inbox(&InboxData::default());
     let _: Result<(), ApiError> = store.save_settings(&LanSettings::default());
 }

@@ -81,7 +81,11 @@ pub fn init(app: &mut App) -> tauri::Result<()> {
     });
 
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
-        .icon(app.default_window_icon().expect("default window icon missing").clone())
+        .icon(
+            app.default_window_icon()
+                .expect("default window icon missing")
+                .clone(),
+        )
         .tooltip("VitryTool")
         .menu(&menu)
         .show_menu_on_left_click(false) // 左键单击直接唤出窗口（右键弹菜单）
@@ -141,8 +145,8 @@ pub fn set_tray_labels(
 
     let show_item = MenuItem::with_id(&app, MENU_SHOW, show_main, true, None::<&str>)
         .map_err(tray_update_err)?;
-    let quit_item = MenuItem::with_id(&app, MENU_QUIT, quit, true, None::<&str>)
-        .map_err(tray_update_err)?;
+    let quit_item =
+        MenuItem::with_id(&app, MENU_QUIT, quit, true, None::<&str>).map_err(tray_update_err)?;
     // 快速开关项：文案随 i18n 下发，勾选态保持当前设置（id 不变）
     let broadcast_item = CheckMenuItem::with_id(
         &app,

@@ -12,7 +12,10 @@ const ERR_STORAGE: &str = "quick_paste.storage_error";
 
 fn storage_err(err: impl std::fmt::Display) -> ApiError {
     log::error!("{ERR_STORAGE}: {err}");
-    ApiError::new(ERR_STORAGE, format!("quick-paste settings store error: {err}"))
+    ApiError::new(
+        ERR_STORAGE,
+        format!("quick-paste settings store error: {err}"),
+    )
 }
 
 /// 快捷键设置持久化。store 文件位于应用数据目录下的 `quick-paste.json`。

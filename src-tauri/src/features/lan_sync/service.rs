@@ -319,7 +319,11 @@ pub fn envelope_from_entry_json(
         .get("files")
         .and_then(|f| f.get("paths"))
         .and_then(|p| p.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
         .filter(|v| !v.is_empty());
     let image_meta = value.get("image").and_then(|img| {
         let path = img.get("path")?.as_str()?;
@@ -366,10 +370,7 @@ pub fn envelope_from_entry_json(
 }
 
 /// 从信封构建收件箱条目（接收侧）。
-pub fn inbox_entry_from_envelope(
-    env: &Envelope,
-    received_at_iso: String,
-) -> Option<InboxEntry> {
+pub fn inbox_entry_from_envelope(env: &Envelope, received_at_iso: String) -> Option<InboxEntry> {
     let fingerprint = envelope_fingerprint(env)?;
     Some(InboxEntry {
         id: uuid::Uuid::new_v4().to_string(),
@@ -440,8 +441,14 @@ mod pure_tests {
 
     #[test]
     fn fingerprint_falls_back_html_rtf_files_image() {
-        assert_eq!(fingerprint_of(None, Some("h"), None, None, None), Some("h".into()));
-        assert_eq!(fingerprint_of(None, None, Some("r"), None, None), Some("r".into()));
+        assert_eq!(
+            fingerprint_of(None, Some("h"), None, None, None),
+            Some("h".into())
+        );
+        assert_eq!(
+            fingerprint_of(None, None, Some("r"), None, None),
+            Some("r".into())
+        );
         assert_eq!(
             fingerprint_of(None, None, None, Some(&["a".into(), "b".into()]), None),
             Some("a\nb".into())
@@ -485,7 +492,10 @@ mod pure_tests {
     fn dedup_promotes_existing_entry() {
         let mut data = InboxData::default();
         insert_message(&mut data, inbox_entry("p1", "same", "2026-08-14T10:00:00Z"));
-        insert_message(&mut data, inbox_entry("p2", "other", "2026-08-14T10:00:01Z"));
+        insert_message(
+            &mut data,
+            inbox_entry("p2", "other", "2026-08-14T10:00:01Z"),
+        );
         // p1 再发同指纹 → 去重置顶，不新增，节点 p1 升到最前
         assert_eq!(
             insert_message(&mut data, inbox_entry("p1", "same", "2026-08-14T10:00:02Z")),
@@ -527,10 +537,7 @@ mod pure_tests {
         }
         assert_eq!(data.nodes.len(), MAX_NODES);
         // 第 9 个节点 p8（最新）→ 淘汰 p0（桶内最新条目最旧）
-        let outcome = insert_message(
-            &mut data,
-            inbox_entry("p8", "f8", "2026-08-14T10:00:08Z"),
-        );
+        let outcome = insert_message(&mut data, inbox_entry("p8", "f8", "2026-08-14T10:00:08Z"));
         assert_eq!(
             outcome,
             InboxOutcome::NodeEvicted {

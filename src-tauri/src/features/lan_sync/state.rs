@@ -8,7 +8,7 @@
 
 use super::service::{
     envelope_fingerprint, inbox_entry_from_envelope, insert_message, Envelope, InboxData,
-    InboxOutcome, LanSettings, MAX_RECEIVED_FINGERPRINTS, MAX_MESSAGE_BYTES,
+    InboxOutcome, LanSettings, MAX_MESSAGE_BYTES, MAX_RECEIVED_FINGERPRINTS,
 };
 use super::store::{InboxStore, SettingsStore, StoreBackend};
 use crate::core::peer_node::NodeEvent;
@@ -44,7 +44,11 @@ pub fn shared() -> Option<&'static Arc<Mutex<LanSyncShared>>> {
 }
 
 /// 初始化（setup 阶段调用一次）：加载设置/收件箱、启动消费者线程、注册广播钩子。
-pub fn init(app: &AppHandle, event_rx: Receiver<NodeEvent>, self_peer_id: String) -> Result<(), String> {
+pub fn init(
+    app: &AppHandle,
+    event_rx: Receiver<NodeEvent>,
+    self_peer_id: String,
+) -> Result<(), String> {
     let backend = StoreBackend::new(app).map_err(|e| e.message)?;
 
     // 设置：终端名缺省取主机名并持久化
@@ -52,7 +56,10 @@ pub fn init(app: &AppHandle, event_rx: Receiver<NodeEvent>, self_peer_id: String
     if settings.terminal_name.trim().is_empty() {
         settings.terminal_name = hostname();
         backend.save_settings(&settings).map_err(|e| e.message)?;
-        log::info!("lan_sync: terminal name defaulted to {}", settings.terminal_name);
+        log::info!(
+            "lan_sync: terminal name defaulted to {}",
+            settings.terminal_name
+        );
     }
 
     let inbox = backend.load_inbox().map_err(|e| e.message)?;
@@ -132,7 +139,10 @@ fn set_broadcast_flag(app: &AppHandle, enabled: bool) -> Result<bool, String> {
         .and_then(|b| b.save_settings(&settings))
         .map_err(|e| e.message)?;
     log::info!("lan_sync: broadcast={enabled} (tray)");
-    let _ = app.emit(SETTINGS_UPDATED_EVENT, serde_json::json!({ "broadcast": enabled }));
+    let _ = app.emit(
+        SETTINGS_UPDATED_EVENT,
+        serde_json::json!({ "broadcast": enabled }),
+    );
     Ok(enabled)
 }
 
@@ -150,7 +160,10 @@ fn set_receive_flag(app: &AppHandle, enabled: bool) -> Result<bool, String> {
         .and_then(|b| b.save_settings(&settings))
         .map_err(|e| e.message)?;
     log::info!("lan_sync: receive={enabled} (tray)");
-    let _ = app.emit(SETTINGS_UPDATED_EVENT, serde_json::json!({ "receive": enabled }));
+    let _ = app.emit(
+        SETTINGS_UPDATED_EVENT,
+        serde_json::json!({ "receive": enabled }),
+    );
     Ok(enabled)
 }
 
@@ -255,12 +268,15 @@ fn broadcast_captured_entry(app: &AppHandle, entry: &serde_json::Value) {
         return;
     }
 
-    let Some(env) = super::service::envelope_from_entry_json(entry, &self_peer_id, &terminal_name, now_ms())
+    let Some(env) =
+        super::service::envelope_from_entry_json(entry, &self_peer_id, &terminal_name, now_ms())
     else {
         log::debug!("lan_sync: entry has no broadcastable content");
         return;
     };
-    let Some(fingerprint) = envelope_fingerprint(&env) else { return };
+    let Some(fingerprint) = envelope_fingerprint(&env) else {
+        return;
+    };
 
     // 防环：近期接收过 → 跳过
     {
@@ -272,7 +288,9 @@ fn broadcast_captured_entry(app: &AppHandle, entry: &serde_json::Value) {
     }
 
     // 体积上限（契约 5.2：超 1MiB 静默跳过）
-    let Ok(bytes) = serde_json::to_vec(&env) else { return };
+    let Ok(bytes) = serde_json::to_vec(&env) else {
+        return;
+    };
     if bytes.len() > MAX_MESSAGE_BYTES {
         log::info!("lan_sync: message too large ({}B), skipped", bytes.len());
         return;

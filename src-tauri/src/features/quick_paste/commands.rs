@@ -12,7 +12,10 @@ use crate::core::error::ApiError;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
-use tauri::{App, AppHandle, Emitter, Manager, PhysicalPosition, Position, WebviewWindow, Window, WindowEvent};
+use tauri::{
+    App, AppHandle, Emitter, Manager, PhysicalPosition, Position, WebviewWindow, Window,
+    WindowEvent,
+};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
 
 /// 小屏窗口 label（与 tauri.conf.json 中 quick-paste 窗口一致）。
@@ -81,7 +84,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(saved) = store.load_hotkey()? {
         match normalize_hotkey(&saved) {
             Ok(normalized) => {
-                handle.global_shortcut().on_shortcut(normalized.as_str(), hotkey_handler)?;
+                handle
+                    .global_shortcut()
+                    .on_shortcut(normalized.as_str(), hotkey_handler)?;
                 handle
                     .state::<QuickPasteState>()
                     .current_hotkey
@@ -349,6 +354,9 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
     if let WindowEvent::CloseRequested { api, .. } = event {
         api.prevent_close();
         let _ = window.hide();
-        log::debug!("window '{}' close requested -> hide to tray", window.label());
+        log::debug!(
+            "window '{}' close requested -> hide to tray",
+            window.label()
+        );
     }
 }

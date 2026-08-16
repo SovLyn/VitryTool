@@ -108,7 +108,12 @@ async fn read_clipboard(app: &AppHandle) -> (Option<ClipboardEntry>, Vec<String>
         match tauri_plugin_clipboard_x::read_image(app.clone(), None).await {
             Ok(img) => {
                 let path = img.path.to_string_lossy().into_owned();
-                log::trace!("read clipboard image -> {path} ({}x{}, {}B)", img.width, img.height, img.size);
+                log::trace!(
+                    "read clipboard image -> {path} ({}x{}, {}B)",
+                    img.width,
+                    img.height,
+                    img.size
+                );
                 written_images.push(path.clone());
                 entry.image = Some(ClipboardImage {
                     path,
@@ -148,7 +153,11 @@ async fn read_clipboard(app: &AppHandle) -> (Option<ClipboardEntry>, Vec<String>
         .filter(|(_, has)| *has)
         .map(|(kind, _)| *kind)
         .collect();
-        log::trace!("read clipboard: id={} kinds=[{}]", entry.id, kinds.join(","));
+        log::trace!(
+            "read clipboard: id={} kinds=[{}]",
+            entry.id,
+            kinds.join(",")
+        );
         (Some(entry), written_images)
     }
 }
@@ -318,7 +327,10 @@ pub async fn clear_clipboard_history(app: AppHandle) -> Result<(), ApiError> {
     store.save_entries(&[])?;
     if let Ok(dir) = image_dir(&app) {
         let removed = list_png_files(&dir);
-        log::debug!("clear_clipboard_history: removing {} image files", removed.len());
+        log::debug!(
+            "clear_clipboard_history: removing {} image files",
+            removed.len()
+        );
         delete_files(&removed);
     }
     Ok(())
@@ -384,7 +396,11 @@ pub async fn set_max_entries(app: AppHandle, max_entries: u32) -> Result<SetMaxR
     delete_files(&evicted);
     store.save_entries(&entries)?;
     store.save_max_entries(n)?;
-    log::info!("set_max_entries: n={n} evicted={} total={}", evicted.len(), entries.len());
+    log::info!(
+        "set_max_entries: n={n} evicted={} total={}",
+        evicted.len(),
+        entries.len()
+    );
     Ok(SetMaxResp {
         max_entries: n as u32,
         evicted: evicted.len() as u32,

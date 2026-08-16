@@ -36,8 +36,12 @@ impl StoreBackend {
     pub fn new(app: &AppHandle) -> Result<Self, ApiError> {
         let data_dir = app.path().app_data_dir().map_err(storage_err)?;
         Ok(Self {
-            inbox: app.store(data_dir.join("lan-inbox.json")).map_err(storage_err)?,
-            settings: app.store(data_dir.join("lan-sync.json")).map_err(storage_err)?,
+            inbox: app
+                .store(data_dir.join("lan-inbox.json"))
+                .map_err(storage_err)?,
+            settings: app
+                .store(data_dir.join("lan-sync.json"))
+                .map_err(storage_err)?,
         })
     }
 }

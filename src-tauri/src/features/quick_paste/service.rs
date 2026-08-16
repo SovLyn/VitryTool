@@ -167,7 +167,11 @@ pub fn normalize_hotkey(input: &str) -> Result<String, HotkeyParseError> {
     }
 
     // 规范顺序输出
-    let mut parts: Vec<&str> = MOD_ORDER.iter().filter(|m| mods.contains(m)).copied().collect();
+    let mut parts: Vec<&str> = MOD_ORDER
+        .iter()
+        .filter(|m| mods.contains(m))
+        .copied()
+        .collect();
     parts.push(key);
     Ok(parts.join("+"))
 }
@@ -205,33 +209,66 @@ mod unit {
 
     #[test]
     fn normalizes_common_shortcuts() {
-        assert_eq!(normalize_hotkey("Ctrl+Shift+K").unwrap(), "CommandOrControl+Shift+K");
-        assert_eq!(normalize_hotkey("shift+ctrl+k").unwrap(), "CommandOrControl+Shift+K");
+        assert_eq!(
+            normalize_hotkey("Ctrl+Shift+K").unwrap(),
+            "CommandOrControl+Shift+K"
+        );
+        assert_eq!(
+            normalize_hotkey("shift+ctrl+k").unwrap(),
+            "CommandOrControl+Shift+K"
+        );
         assert_eq!(normalize_hotkey("Alt+1").unwrap(), "Alt+1");
         assert_eq!(normalize_hotkey("Super+Space").unwrap(), "Super+Space");
-        assert_eq!(normalize_hotkey("CmdOrCtrl+Shift+Alt+K").unwrap(), "CommandOrControl+Alt+Shift+K");
+        assert_eq!(
+            normalize_hotkey("CmdOrCtrl+Shift+Alt+K").unwrap(),
+            "CommandOrControl+Alt+Shift+K"
+        );
         assert_eq!(normalize_hotkey("Ctrl+F5").unwrap(), "CommandOrControl+F5");
         assert_eq!(normalize_hotkey("CTRL+KeyX").unwrap(), "CommandOrControl+X");
-        assert_eq!(normalize_hotkey(" Control + Shift + ArrowUp ").unwrap(), "CommandOrControl+Shift+ArrowUp");
+        assert_eq!(
+            normalize_hotkey(" Control + Shift + ArrowUp ").unwrap(),
+            "CommandOrControl+Shift+ArrowUp"
+        );
     }
 
     #[test]
     fn rejects_missing_modifier() {
-        assert_eq!(normalize_hotkey("K"), Err(HotkeyParseError::MissingModifier));
-        assert_eq!(normalize_hotkey("F1"), Err(HotkeyParseError::MissingModifier));
-        assert_eq!(normalize_hotkey("1"), Err(HotkeyParseError::MissingModifier));
+        assert_eq!(
+            normalize_hotkey("K"),
+            Err(HotkeyParseError::MissingModifier)
+        );
+        assert_eq!(
+            normalize_hotkey("F1"),
+            Err(HotkeyParseError::MissingModifier)
+        );
+        assert_eq!(
+            normalize_hotkey("1"),
+            Err(HotkeyParseError::MissingModifier)
+        );
     }
 
     #[test]
     fn rejects_shift_only() {
-        assert_eq!(normalize_hotkey("Shift+K"), Err(HotkeyParseError::ShiftOnly));
-        assert_eq!(normalize_hotkey("Shift+Shift+A"), Err(HotkeyParseError::ShiftOnly));
+        assert_eq!(
+            normalize_hotkey("Shift+K"),
+            Err(HotkeyParseError::ShiftOnly)
+        );
+        assert_eq!(
+            normalize_hotkey("Shift+Shift+A"),
+            Err(HotkeyParseError::ShiftOnly)
+        );
     }
 
     #[test]
     fn rejects_missing_main_key() {
-        assert_eq!(normalize_hotkey("Ctrl+"), Err(HotkeyParseError::MissingMainKey));
-        assert_eq!(normalize_hotkey("Ctrl+Shift"), Err(HotkeyParseError::MissingMainKey));
+        assert_eq!(
+            normalize_hotkey("Ctrl+"),
+            Err(HotkeyParseError::MissingMainKey)
+        );
+        assert_eq!(
+            normalize_hotkey("Ctrl+Shift"),
+            Err(HotkeyParseError::MissingMainKey)
+        );
     }
 
     #[test]
@@ -259,47 +296,95 @@ mod unit {
 
     #[test]
     fn deduplicates_modifiers() {
-        assert_eq!(normalize_hotkey("Ctrl+Ctrl+K").unwrap(), "CommandOrControl+K");
-        assert_eq!(normalize_hotkey("Shift+Ctrl+Shift+K").unwrap(), "CommandOrControl+Shift+K");
+        assert_eq!(
+            normalize_hotkey("Ctrl+Ctrl+K").unwrap(),
+            "CommandOrControl+K"
+        );
+        assert_eq!(
+            normalize_hotkey("Shift+Ctrl+Shift+K").unwrap(),
+            "CommandOrControl+Shift+K"
+        );
     }
 
     #[test]
     fn supports_canonical_and_alternate_names() {
-        assert_eq!(normalize_hotkey("CommandOrControl+Option+Super+T").unwrap(), "CommandOrControl+Alt+Super+T");
+        assert_eq!(
+            normalize_hotkey("CommandOrControl+Option+Super+T").unwrap(),
+            "CommandOrControl+Alt+Super+T"
+        );
         assert_eq!(normalize_hotkey("Cmd+Enter").unwrap(), "Super+Enter");
-        assert_eq!(normalize_hotkey("Ctrl+Down").unwrap(), "CommandOrControl+ArrowDown");
+        assert_eq!(
+            normalize_hotkey("Ctrl+Down").unwrap(),
+            "CommandOrControl+ArrowDown"
+        );
     }
 
     #[test]
     fn shortcut_supported_on_non_wayland_sessions() {
         // X11 会话
-        assert!(global_shortcut_supported(Some("x11"), Some("wayland-0"), None));
+        assert!(global_shortcut_supported(
+            Some("x11"),
+            Some("wayland-0"),
+            None
+        ));
         // 会话变量缺失且无 WAYLAND_DISPLAY（Windows / macOS / 未知环境）
         assert!(global_shortcut_supported(None, None, None));
         // 大小写不敏感
-        assert!(global_shortcut_supported(Some("X11"), Some("wayland-0"), None));
+        assert!(global_shortcut_supported(
+            Some("X11"),
+            Some("wayland-0"),
+            None
+        ));
     }
 
     #[test]
     fn shortcut_unsupported_on_wayland_by_default() {
         // 标准 Wayland 会话（无 GDK_BACKEND）：不支持
-        assert!(!global_shortcut_supported(Some("wayland"), Some("wayland-0"), None));
+        assert!(!global_shortcut_supported(
+            Some("wayland"),
+            Some("wayland-0"),
+            None
+        ));
         // 显式 wayland 后端
-        assert!(!global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some("wayland")));
+        assert!(!global_shortcut_supported(
+            Some("wayland"),
+            Some("wayland-0"),
+            Some("wayland")
+        ));
         // 会话变量缺失但存在 WAYLAND_DISPLAY
         assert!(!global_shortcut_supported(None, Some("wayland-0"), None));
         // 空会话串 + WAYLAND_DISPLAY
-        assert!(!global_shortcut_supported(Some(""), Some("wayland-0"), None));
+        assert!(!global_shortcut_supported(
+            Some(""),
+            Some("wayland-0"),
+            None
+        ));
     }
 
     #[test]
     fn shortcut_supported_on_wayland_with_forced_x11_backend() {
         // GDK_BACKEND=x11（GTK 走 XWayland）：判定可能生效
-        assert!(global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some("x11")));
+        assert!(global_shortcut_supported(
+            Some("wayland"),
+            Some("wayland-0"),
+            Some("x11")
+        ));
         // 多后端列表中含 x11
-        assert!(global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some("x11,wayland")));
-        assert!(global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some(" wayland , x11 ")));
+        assert!(global_shortcut_supported(
+            Some("wayland"),
+            Some("wayland-0"),
+            Some("x11,wayland")
+        ));
+        assert!(global_shortcut_supported(
+            Some("wayland"),
+            Some("wayland-0"),
+            Some(" wayland , x11 ")
+        ));
         // 大小写不敏感
-        assert!(global_shortcut_supported(Some("wayland"), Some("wayland-0"), Some("X11")));
+        assert!(global_shortcut_supported(
+            Some("wayland"),
+            Some("wayland-0"),
+            Some("X11")
+        ));
     }
 }

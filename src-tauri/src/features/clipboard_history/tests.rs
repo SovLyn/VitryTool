@@ -130,7 +130,8 @@ fn favorite_flow_survives_eviction_and_sorts_to_top() {
 
     // 捕捉三条（上限 2）→ 淘汰最旧的普通条目
     for (i, text) in ["a", "b", "c"].iter().enumerate() {
-        let outcome = dedup_promote_and_evict(&mut entries, entry(&format!("id-{i}"), text, None), 2);
+        let outcome =
+            dedup_promote_and_evict(&mut entries, entry(&format!("id-{i}"), text, None), 2);
         assert!(outcome.is_new);
     }
     assert_eq!(entries.len(), 2);
@@ -138,16 +139,18 @@ fn favorite_flow_survives_eviction_and_sorts_to_top() {
     assert_eq!(entries[1].id, "id-1");
 
     // 收藏最旧的 id-1（此刻位于队尾）
-    assert!(set_favorite(&mut entries, "id-1", true, "2026-08-13T01:00:00Z"));
+    assert!(set_favorite(
+        &mut entries,
+        "id-1",
+        true,
+        "2026-08-13T01:00:00Z"
+    ));
     store.save_entries(&entries).unwrap();
 
     // 继续捕捉两条 → 淘汰最旧的非收藏（id-2），收藏的 id-1 豁免
     for (i, text) in ["d", "e"].iter().enumerate() {
-        let outcome = dedup_promote_and_evict(
-            &mut entries,
-            entry(&format!("id-{}", 3 + i), text, None),
-            2,
-        );
+        let outcome =
+            dedup_promote_and_evict(&mut entries, entry(&format!("id-{}", 3 + i), text, None), 2);
         assert!(outcome.is_new);
     }
     assert_eq!(entries.len(), 3); // 2 非收藏 + 1 收藏（收藏豁免上限）
@@ -160,7 +163,12 @@ fn favorite_flow_survives_eviction_and_sorts_to_top() {
     assert!(entries.iter().skip(1).all(|e| !e.is_favorite()));
 
     // 取消收藏 → 不触发淘汰（容忍短暂超限：普通条目数 3 > 上限 2 仍全部保留）
-    assert!(set_favorite(&mut entries, "id-1", false, "2026-08-13T02:00:00Z"));
+    assert!(set_favorite(
+        &mut entries,
+        "id-1",
+        false,
+        "2026-08-13T02:00:00Z"
+    ));
     store.save_entries(&entries).unwrap();
     assert_eq!(entries.len(), 3);
     assert!(!entries.iter().any(|e| e.is_favorite()));

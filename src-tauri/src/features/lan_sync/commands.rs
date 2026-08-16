@@ -31,8 +31,11 @@ fn entry_not_found(id: &str) -> ApiError {
     ApiError::new(ERR_NOT_FOUND, format!("inbox entry not found: {id}"))
 }
 
-fn shared_or_err() -> Result<std::sync::Arc<std::sync::Mutex<super::state::LanSyncShared>>, ApiError> {
-    shared().cloned().ok_or_else(|| node_err("lan-sync not initialized"))
+fn shared_or_err() -> Result<std::sync::Arc<std::sync::Mutex<super::state::LanSyncShared>>, ApiError>
+{
+    shared()
+        .cloned()
+        .ok_or_else(|| node_err("lan-sync not initialized"))
 }
 
 /// 节点状态（契约 2：getLanSyncStatus）。
@@ -78,7 +81,10 @@ pub async fn set_lan_sync_broadcast(app: AppHandle, enabled: bool) -> Result<(),
     };
     let backend = StoreBackend::new(&app).map_err(storage_err)?;
     backend.save_settings(&settings).map_err(storage_err)?;
-    let _ = app.emit(SETTINGS_UPDATED_EVENT, serde_json::json!({ "broadcast": enabled }));
+    let _ = app.emit(
+        SETTINGS_UPDATED_EVENT,
+        serde_json::json!({ "broadcast": enabled }),
+    );
     log::info!("lan_sync: broadcast={enabled}");
     Ok(())
 }
@@ -94,7 +100,10 @@ pub async fn set_lan_sync_receive(app: AppHandle, enabled: bool) -> Result<(), A
     };
     let backend = StoreBackend::new(&app).map_err(storage_err)?;
     backend.save_settings(&settings).map_err(storage_err)?;
-    let _ = app.emit(SETTINGS_UPDATED_EVENT, serde_json::json!({ "receive": enabled }));
+    let _ = app.emit(
+        SETTINGS_UPDATED_EVENT,
+        serde_json::json!({ "receive": enabled }),
+    );
     log::info!("lan_sync: receive={enabled}");
     Ok(())
 }
@@ -104,12 +113,12 @@ pub async fn set_lan_sync_receive(app: AppHandle, enabled: bool) -> Result<(), A
 pub async fn set_lan_sync_terminal_name(app: AppHandle, name: String) -> Result<(), ApiError> {
     let trimmed = name.trim().to_string();
     if !validate_terminal_name(&trimmed) {
-        log::warn!("set_lan_sync_terminal_name: invalid name (len≤{TERMINAL_NAME_MAX_LEN}, non-empty)");
+        log::warn!(
+            "set_lan_sync_terminal_name: invalid name (len≤{TERMINAL_NAME_MAX_LEN}, non-empty)"
+        );
         return Err(ApiError::new(
             ERR_INVALID_NAME,
-            format!(
-                "terminal name must be non-empty and at most {TERMINAL_NAME_MAX_LEN} chars"
-            ),
+            format!("terminal name must be non-empty and at most {TERMINAL_NAME_MAX_LEN} chars"),
         ));
     }
     let shared = shared_or_err()?;
@@ -209,7 +218,10 @@ pub async fn delete_lan_inbox_entry(app: AppHandle, id: String) -> Result<(), Ap
     };
     let backend = StoreBackend::new(&app).map_err(storage_err)?;
     backend.save_inbox(&inbox).map_err(storage_err)?;
-    let _ = app.emit(INBOX_UPDATED_EVENT, serde_json::json!({ "reason": "deleted", "id": id }));
+    let _ = app.emit(
+        INBOX_UPDATED_EVENT,
+        serde_json::json!({ "reason": "deleted", "id": id }),
+    );
     log::info!("lan_sync: inbox entry deleted");
     Ok(())
 }
@@ -225,7 +237,10 @@ pub async fn clear_lan_inbox(app: AppHandle) -> Result<(), ApiError> {
     };
     let backend = StoreBackend::new(&app).map_err(storage_err)?;
     backend.save_inbox(&inbox).map_err(storage_err)?;
-    let _ = app.emit(INBOX_UPDATED_EVENT, serde_json::json!({ "reason": "cleared" }));
+    let _ = app.emit(
+        INBOX_UPDATED_EVENT,
+        serde_json::json!({ "reason": "cleared" }),
+    );
     log::info!("lan_sync: inbox cleared");
     Ok(())
 }

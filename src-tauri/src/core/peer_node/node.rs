@@ -65,7 +65,10 @@ struct Behaviour {
 }
 
 impl Behaviour {
-    fn new(keypair: &Keypair, topic: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn new(
+        keypair: &Keypair,
+        topic: &str,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let peer_id = keypair.public().to_peer_id();
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .validation_mode(ValidationMode::Permissive) // 原型沿用；生产可换 Strict + report
@@ -159,7 +162,11 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
         .build();
 
     swarm
-        .listen_on("/ip4/0.0.0.0/tcp/0".parse().map_err(|e| format!("addr: {e}"))?)
+        .listen_on(
+            "/ip4/0.0.0.0/tcp/0"
+                .parse()
+                .map_err(|e| format!("addr: {e}"))?,
+        )
         .map_err(|e| format!("listen tcp: {e}"))?;
     swarm
         .listen_on(
@@ -178,7 +185,11 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
         // 命令通道：poll 非阻塞，兼顾 swarm 事件
         match command_rx.try_recv() {
             Ok(NodeCommand::Publish { data }) => {
-                match swarm.behaviour_mut().gossipsub.publish(topic_hash.clone(), data) {
+                match swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .publish(topic_hash.clone(), data)
+                {
                     Ok(_) => {}
                     Err(e) => log::debug!("peer_node: publish failed: {e}"),
                 }
