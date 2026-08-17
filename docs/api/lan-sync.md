@@ -157,6 +157,15 @@ pub struct LanSyncStatus { peer_id: String, terminal_name: String, broadcast_ena
 - **入口（0.2.7）**：除设置页外，系统托盘菜单提供「剪贴板广播」「剪贴板接收」两个可勾选项（CheckMenuItem）快速开关——经 `core::hooks` 注册的开关钩子读写（与 `setLanSyncBroadcast` / `setLanSyncReceive` 命令同一共享态与持久化路径），勾选态随设置实时同步；文案由前端 i18n 经 `setTrayLabels` 下发（契约 quick-paste 5.5）。
 - **设置变化事件（0.2.7）**：托盘或设置页切换广播/接收后，后端 emit `lan-sync://settings-updated`（载荷含对应字段），设置页监听并重新拉取 `getLanSyncStatus` 实时刷新开关状态。
 
+### 5.8 移动端差异（0.2.9，契约 mobile 5.2–5.4）
+
+- **定位**：移动端为「接收 + 转发终端」——前台运行节点接收广播入收件箱，点条目写系统剪贴板后手动粘贴；**不监听**（Android 无可靠后台监听）、**不广播**（无 capture 触发点）、无后台保活。
+- **回写（`writeLanInboxEntry`）**：移动端写纯文本（契约 mobile 5.2 提取逻辑）后**显式插入本地历史**（复用 capture 落盘逻辑：指纹去重置顶/淘汰，内容已在内存，不依赖 Android 剪贴板读权限）；桌面端行为不变（写回 → 监听 capture 进历史）。files-only 条目移动端禁用（错误码 `clipboard.write_unsupported`）。
+- **广播开关**：`setLanSyncBroadcast` 移动端前端无入口（隐藏）；节点仍**公告自身**（其他终端可见手机在线），但移动端节点不发布任何内容。
+- **节点生命周期**：移动端 = 应用进程生命周期（无前台服务，转 TODO）；mDNS 组播需 MainActivity 持 `WifiManager.MulticastLock` + Manifest 4 权限（INTERNET / ACCESS_NETWORK_STATE / ACCESS_WIFI_STATE / CHANGE_WIFI_MULTICAST_STATE）。
+- **单实例**：tauri-plugin-single-instance 仅桌面注册（Android 无第二实例概念）。
+- **收件箱展示**：imageMeta / filePaths 条目照常展示（用户可见对方复制了什么）；仅 files-only 写回禁用。
+
 ## 6. 破坏性影响
 
 - 无：全新功能，不动既有命令/事件/存储。

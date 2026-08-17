@@ -1,6 +1,6 @@
 {
   "name": "vitrytool",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "A handy tool for lan information sharing and other staff",
   "type": "module",
   "scripts": {

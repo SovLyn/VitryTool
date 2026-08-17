@@ -96,3 +96,16 @@ src/
 - 基于 `log` 门面 + `tauri-plugin-log`（官方后端），初始化在 `core/log.rs`；业务代码直接用 `log::trace! / debug! / info! / warn! / error!`，无需关心输出目标。
 - 级别与目标：**开发（debug_assertions）** `Debug` 级输出终端，系统 crate 压到 `Info`——libp2p 各子 crate 的 Debug/Trace（swarm 轮询、心跳、流协商）与 tracing→log 桥的 span 记录统一丢弃（自定义 filter，见 `core/log.rs`）；**发布（release）** `Error` 级写入应用日志目录文件（5 MiB 大小轮转，保留最近一份）。
 - **隐私约束**：日志只记录元数据（id / 类型 / 长度 / 路径 / 操作结果），绝不记录剪贴板明文等敏感内容（见 `core/log.rs`）。
+
+## 9. 平台差异（桌面 / 移动端，0.2.9）
+
+移动端（Android）支持采用**编译期平台隔离**，契约见 `docs/api/mobile.md`、功能文档 `docs/features/mobile.md`：
+
+- **依赖隔离**：`Cargo.toml` 用 target 条件依赖——桌面段（`cfg(not(any(target_os = "android", target_os = "ios")))`）挂 clipboard-x / global-shortcut / window-state / single-instance，移动段挂官方 clipboard-manager。`desktop` / `mobile` cfg alias 由 tauri-build 注入（Cargo target 表不认该 alias，须写显式 `target_os`）。
+- **注册隔离**：`lib.rs` 用 `#[cfg(desktop)]` / `#[cfg(mobile)]` 门控插件注册、托盘 init、quick_paste init、窗口事件钩子与**命令列表**（`generate_handler!` 为 proc macro，参数内不能写 cfg，按平台拆两套完整列表）。
+- **功能域隔离**：桌面专属功能（quick_paste、core/tray）整个 mod `#[cfg(desktop)]` 不编译；移动端命令（capture、cleanup 等）不注册、前端无入口。
+- **平台识别**：`core/platform.rs` 提供 `getPlatformInfo` 命令（`isMobile` / `platform` / `hotkeyCapability`）+ 剪贴板写分发（桌面 clipboard-x / 移动 clipboard-manager）+ 移动端可写文本提取（`strip_html` / `mobile_writable_text`）；全局快捷键能力判定也从 quick_paste 迁入（core 自包含）。
+- **capabilities**：按 `platforms` 字段拆桌面 `default.json`（clipboard-x）与移动 `mobile.json`（clipboard-manager）。
+- **前端**：启动时调 `getPlatformInfo`，以 `isMobile` 隔离桌面功能（剪贴板监听、托盘文案、快速粘贴/广播设置、files-only 写回禁用）；响应式布局（640px 断点底部 tab）经 CSS media query，与平台无关。
+- **Android 工程**：`gen/android/` 为 Tauri 脚手架（随仓库提交，构建产物 `build/`、`.gradle/`、`keystore.*` 被其 `.gitignore` 排除）；`tauri.conf.json` 的 `windows` 数组**只声明桌面主窗口**——Android 上该数组会被全部创建（quick-paste popup 覆盖主界面，0.2.9 实测坑），桌面小窗改由 `quick_paste::init` 代码创建。
+- **构建注意**：Windows 上 `tauri android build` 的 jniLibs symlink 步骤需开发者模式/管理员；本机可用「手动复制 .so 到 `jniLibs/<abi>/` + gradle 排除 rust 任务」绕过（NDK 交叉编译需 `CC_aarch64_linux_android` / `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` 环境变量）。

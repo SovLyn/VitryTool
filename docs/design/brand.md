@@ -28,6 +28,10 @@ node scripts/render-icon.mjs
 
 # 2) PNG → 全套图标（icon.ico / icon.icns / 各尺寸 png / StoreLogo 等）
 pnpm tauri icon src-tauri/icons/app-icon.png
+
+# 3) Android 启动图标（galaxy → gen/android 各密度 mipmap 位图，
+#    含与步骤 1 相同的居中旋转修复；改图标后重跑本脚本 + 重新打包 APK）
+node scripts/render-android-icons.mjs
 ```
 
 产物（`src-tauri/icons/`，均由生成命令产出，勿手改）：
@@ -35,11 +39,13 @@ pnpm tauri icon src-tauri/icons/app-icon.png
 - `32x32.png` / `64x64.png` / `128x128.png` / `128x128@2x.png`（托盘与窗口）
 - `Square*Logo.png` / `StoreLogo.png`（Windows Store 预留）
 - `app-icon.png`（渲染中间产物，可随时由脚本重建）
+- Android：`src-tauri/gen/android/app/src/main/res/mipmap-*/ic_launcher{,_round}.png`（48/72/96/144/192，由步骤 3 生成）
 
 ## 图标应用位置
 
 - **托盘图标**：`src-tauri/src/core/tray.rs`（`app.default_window_icon()`，随构建自动使用新图标）。
 - **应用窗口图标**：打包时由 `tauri.conf.json` `bundle.icon` 引用。
+- **Android 启动图标**：`AndroidManifest.xml` 引用 `@mipmap/ic_launcher`（位图，无 anydpi-v26 自适应图标；如需自适应/圆形蒙版再做）。
 
 ## 变更记录
 

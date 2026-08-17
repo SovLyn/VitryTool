@@ -29,7 +29,8 @@
     "capture_failed": "Failed to read clipboard",
     "entry_not_found": "Entry not found",
     "invalid_max_entries": "Max entries must be between 1 and 1024",
-    "storage_error": "Failed to read or write history data"
+    "storage_error": "Failed to read or write history data",
+    "write_unsupported": "This content (file paths) cannot be written to clipboard on mobile"
   },
   "quickPaste": {
     "title": "Quick Actions",
@@ -76,6 +77,7 @@
     "clearConfirm": "Clear the entire inbox?",
     "delete": "Delete",
     "writtenBack": "Written back to clipboard",
+    "writeUnsupported": "This content (file paths) cannot be written to clipboard on mobile",
     "items": "{count} items",
     "settingsTitle": "LAN Sync",
     "broadcast": "Broadcast",

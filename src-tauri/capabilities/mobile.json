@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default-mobile",
+  "description": "Capability for the main window (mobile, 0.2.9)",
+  "windows": ["main"],
+  "platforms": ["android", "iOS"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "clipboard-manager:default"
+  ]
+}

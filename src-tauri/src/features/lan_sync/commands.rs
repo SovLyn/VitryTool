@@ -149,8 +149,9 @@ pub async fn get_lan_inbox() -> Result<InboxData, ApiError> {
 }
 
 /// 回写：按原格式写系统剪贴板 → 本机 capture 进历史（防环不重广播，契约 5.5）。
+/// 移动端（契约 mobile 5.3）：写纯文本（5.2 提取）→ 经 hooks 显式入本地历史，**不广播**。
 #[tauri::command]
-pub async fn write_lan_inbox_entry(id: String) -> Result<(), ApiError> {
+pub async fn write_lan_inbox_entry(_app: AppHandle, id: String) -> Result<(), ApiError> {
     let shared = shared_or_err()?;
     let entry = {
         let g = shared.lock().unwrap();
@@ -163,46 +164,86 @@ pub async fn write_lan_inbox_entry(id: String) -> Result<(), ApiError> {
     }
     .ok_or_else(|| entry_not_found(&id))?;
 
-    let kind = if entry.html.is_some() {
-        "html"
-    } else if entry.rtf.is_some() {
-        "rtf"
-    } else if entry.text.is_some() {
-        "text"
-    } else if entry.file_paths.is_some() {
-        "files"
-    } else {
-        "image"
-    };
-    log::debug!("write_lan_inbox_entry: id={id} kind={kind}");
-
-    if let Some(html) = &entry.html {
-        tauri_plugin_clipboard_x::write_html(entry.text.clone().unwrap_or_default(), html.clone())
-            .await
-            .map_err(|e| ApiError::new("lan.peer_node_error", format!("write clipboard: {e}")))?;
-    } else if let Some(rtf) = &entry.rtf {
-        tauri_plugin_clipboard_x::write_rtf(entry.text.clone().unwrap_or_default(), rtf.clone())
-            .await
-            .map_err(|e| ApiError::new("lan.peer_node_error", format!("write clipboard: {e}")))?;
-    } else if let Some(text) = &entry.text {
-        tauri_plugin_clipboard_x::write_text(text.clone())
-            .await
-            .map_err(|e| ApiError::new("lan.peer_node_error", format!("write clipboard: {e}")))?;
-    } else if let Some(paths) = &entry.file_paths {
-        tauri_plugin_clipboard_x::write_files(paths.clone())
-            .await
-            .map_err(|e| ApiError::new("lan.peer_node_error", format!("write clipboard: {e}")))?;
-    } else if let Some(meta) = &entry.image_meta {
-        // 首版图片仅元数据：写占位文本（契约 5.5）
-        let dims = match (meta.width, meta.height) {
-            (Some(w), Some(h)) => format!(" ({w}x{h})"),
-            _ => String::new(),
+    #[cfg(desktop)]
+    {
+        let kind = if entry.html.is_some() {
+            "html"
+        } else if entry.rtf.is_some() {
+            "rtf"
+        } else if entry.text.is_some() {
+            "text"
+        } else if entry.file_paths.is_some() {
+            "files"
+        } else {
+            "image"
         };
-        tauri_plugin_clipboard_x::write_text(format!("[图片] {}{dims}", meta.name))
+        log::debug!("write_lan_inbox_entry: id={id} kind={kind}");
+
+        if let Some(html) = &entry.html {
+            tauri_plugin_clipboard_x::write_html(
+                entry.text.clone().unwrap_or_default(),
+                html.clone(),
+            )
             .await
             .map_err(|e| ApiError::new("lan.peer_node_error", format!("write clipboard: {e}")))?;
+        } else if let Some(rtf) = &entry.rtf {
+            tauri_plugin_clipboard_x::write_rtf(
+                entry.text.clone().unwrap_or_default(),
+                rtf.clone(),
+            )
+            .await
+            .map_err(|e| ApiError::new("lan.peer_node_error", format!("write clipboard: {e}")))?;
+        } else if let Some(text) = &entry.text {
+            tauri_plugin_clipboard_x::write_text(text.clone())
+                .await
+                .map_err(|e| {
+                    ApiError::new("lan.peer_node_error", format!("write clipboard: {e}"))
+                })?;
+        } else if let Some(paths) = &entry.file_paths {
+            tauri_plugin_clipboard_x::write_files(paths.clone())
+                .await
+                .map_err(|e| {
+                    ApiError::new("lan.peer_node_error", format!("write clipboard: {e}"))
+                })?;
+        } else if let Some(meta) = &entry.image_meta {
+            // 首版图片仅元数据：写占位文本（契约 5.5）
+            let dims = match (meta.width, meta.height) {
+                (Some(w), Some(h)) => format!(" ({w}x{h})"),
+                _ => String::new(),
+            };
+            tauri_plugin_clipboard_x::write_text(format!("[图片] {}{dims}", meta.name))
+                .await
+                .map_err(|e| {
+                    ApiError::new("lan.peer_node_error", format!("write clipboard: {e}"))
+                })?;
+        }
+        Ok(())
     }
-    Ok(())
+
+    #[cfg(mobile)]
+    {
+        let placeholder = entry.image_meta.as_ref().map(|meta| {
+            let dims = match (meta.width, meta.height) {
+                (Some(w), Some(h)) => format!(" ({w}x{h})"),
+                _ => String::new(),
+            };
+            format!("[图片] {}{dims}", meta.name)
+        });
+        let Some(plain) = crate::core::platform::mobile_writable_text(
+            entry.text.as_deref(),
+            entry.html.as_deref(),
+            placeholder,
+        ) else {
+            log::warn!("write_lan_inbox_entry: id={id} unsupported on mobile (files only)");
+            return Err(ApiError::new(
+                "clipboard.write_unsupported",
+                "inbox entry contains only file paths, cannot write on mobile",
+            ));
+        };
+        // 写剪贴板 + 显式入历史（hooks 由 clipboard_history 在 setup 注册）
+        crate::core::hooks::mobile_clipboard_write(&_app, &plain)
+            .map_err(|e| ApiError::new("lan.peer_node_error", format!("write clipboard: {e}")))
+    }
 }
 
 /// 单条删除（契约 5.3）。

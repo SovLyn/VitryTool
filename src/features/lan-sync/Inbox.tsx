@@ -21,6 +21,7 @@ import {
   type LanInboxNode,
 } from "../../api/lan-sync";
 import { notify } from "../../api/notify";
+import { getPlatformInfo } from "../../api/platform";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { useI18n } from "../../i18n";
 
@@ -50,6 +51,14 @@ function shortPeer(peerId: string): string {
   return peerId.length > 10 ? `${peerId.slice(0, 10)}…` : peerId;
 }
 
+/**
+ * 移动端不可写：仅含文件路径（契约 mobile 5.2，files-only → `clipboard.write_unsupported`）。
+ * 桌面端文件路径可写回系统剪贴板，不受此限制。
+ */
+function isFilesOnly(entry: LanInboxEntry): boolean {
+  return !entry.text && !entry.html && !entry.imageMeta && !!entry.filePaths;
+}
+
 interface InboxProps {
   /** 进入/刷新收件箱时调用（App 层重置未读徽标）。 */
   onSeen?: () => void;
@@ -66,6 +75,14 @@ export function Inbox(props: InboxProps) {
   /** 上一次刷新见过的条目 id（用于「新到达」高亮）；首次加载不标记。 */
   const prevSeen = new Set<string>();
   const newIds = new Set<string>();
+  /** 是否移动端（null=未加载）：files-only 条目禁止写回（契约 mobile 5.2）。 */
+  const [isMobile, setIsMobile] = createSignal<boolean | null>(null);
+
+  onMount(() => {
+    void getPlatformInfo()
+      .then((info) => setIsMobile(info.isMobile))
+      .catch(() => setIsMobile(false));
+  });
 
   async function refresh(initial = false) {
     try {
@@ -110,6 +127,11 @@ export function Inbox(props: InboxProps) {
   });
 
   async function handleWriteBack(entry: LanInboxEntry) {
+    // 移动端：仅文件路径的条目无法写入剪贴板（契约 mobile 5.2），提示而非写回
+    if (isMobile() === true && isFilesOnly(entry)) {
+      await notify({ level: "warning", code: "lanSync.writeUnsupported" });
+      return;
+    }
     try {
       await writeLanInboxEntry(entry.id);
       await notify({ level: "success", code: "lanSync.writtenBack" });

@@ -3,14 +3,16 @@
 //! 用途：
 //! - 剪贴板历史产生**新条目**时，`capture_clipboard` 经此通知 lan-sync 广播；
 //! - 系统托盘提供 lan-sync「广播 / 接收」快速开关（读状态 + 切换 + 持久化），
-//!   由 lan-sync 注册实现、托盘菜单调用（core 不依赖功能域）。
+//!   由 lan-sync 注册实现、托盘菜单调用（core 不依赖功能域）；
+//! - **移动端回写（0.2.9，契约 mobile 5.3）**：lan-sync 的 `writeLanInboxEntry`
+//!   需要把收件箱内容写入系统剪贴板并显式记录进本地历史——由 clipboard_history
+//!   注册实现、lan-sync 调用（与 notify_new_entry 方向相反的服务调用）。
 //!
 //! 设计约束：
 //! - core 不依赖任何功能域类型 → 载荷用 `serde_json::Value`（条目序列化后的 JSON）；
 //! - 功能间无编译期耦合：lan-sync 在 setup 注册消费端，剪贴板历史只调用 notify；
-//! - 未注册时 notify / 开关钩子为空操作（不影响既有行为）。
-//!
-//! 契约：`docs/api/lan-sync.md` 第 5.2、5.4 节。
+//! - 未注册时 notify / 开关钩子为空操作（不影响既有行为）；移动端写入钩子未注册
+//!   时返回错误（正常流程 setup 阶段已注册）。
 
 use serde_json::Value;
 use std::sync::{Mutex, OnceLock};
@@ -36,6 +38,38 @@ pub fn notify_new_entry(app: &AppHandle, entry: &Value) {
     let slot = hook_slot().lock().unwrap();
     if let Some(hook) = slot.as_ref() {
         hook(app, entry);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 移动端剪贴板写入钩子（0.2.9，契约 mobile 5.2-5.3）
+// ---------------------------------------------------------------------------
+
+/// 移动端「写剪贴板 + 显式记录进本地历史」实现（由 clipboard_history 注册）。
+type MobileClipboardWrite = Box<dyn Fn(&AppHandle, &str) -> Result<(), String> + Send + Sync>;
+
+static MOBILE_CLIPBOARD_WRITE: OnceLock<Mutex<Option<MobileClipboardWrite>>> = OnceLock::new();
+
+fn mobile_write_slot() -> &'static Mutex<Option<MobileClipboardWrite>> {
+    MOBILE_CLIPBOARD_WRITE.get_or_init(|| Mutex::new(None))
+}
+
+/// 注册移动端剪贴板写入实现（setup 阶段由 clipboard_history 调用；重复注册覆盖）。
+///
+/// 载荷：待写入的纯文本（调用方已按契约 mobile 5.2 提取）。
+/// 语义：写系统剪贴板 → 显式入本地历史（复用 capture 落盘逻辑，**不触发广播**）。
+pub fn register_mobile_clipboard_write(hook: MobileClipboardWrite) {
+    let mut slot = mobile_write_slot().lock().unwrap();
+    *slot = Some(hook);
+    log::debug!("hooks: mobile-clipboard-write hook registered");
+}
+
+/// 调用移动端剪贴板写入（lan-sync 移动端回写；未注册时返回错误）。
+pub fn mobile_clipboard_write(app: &AppHandle, text: &str) -> Result<(), String> {
+    let slot = mobile_write_slot().lock().unwrap();
+    match slot.as_ref() {
+        Some(hook) => hook(app, text),
+        None => Err("mobile clipboard write not registered".to_string()),
     }
 }
 

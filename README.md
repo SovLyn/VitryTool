@@ -2,7 +2,7 @@
 
 局域网信息共享工具（LAN information sharing）—— 用于在局域网内共享信息与文件的开源桌面应用。
 
-> **当前状态**：`0.2.8`，剪贴板历史（含收藏）+ 快速粘贴（全局快捷键小屏）+ 局域网剪贴板同步（lan-sync，libp2p + mDNS）已落地，含日志系统、主题、设置页、全局通知（toast）、托盘（菜单文案随语言切换、lan-sync 广播/接收快速开关）与窗口状态记忆。
+> **当前状态**：`0.2.9`，剪贴板历史（含收藏）+ 快速粘贴（全局快捷键小屏）+ 局域网剪贴板同步（lan-sync，libp2p + mDNS）+ **移动端（Android）支持**（收件箱接收 → 写剪贴板），含日志系统、主题、设置页、全局通知（toast）、托盘（菜单文案随语言切换、lan-sync 广播/接收快速开关）与窗口状态记忆。
 
 ## 项目简介
 
@@ -17,13 +17,14 @@ VitryTool 的目标是提供轻量、本地的局域网信息共享能力，不�
   - 快速粘贴（quick-paste）——全局快捷键 + 置顶小屏：按住唤出剪贴板历史（实时同步最新复制），滚轮选择，松开回写；含系统托盘与窗口状态记忆，见 [`docs/features/quick-paste.md`](docs/features/quick-paste.md) 与接口契约 [`docs/api/quick-paste.md`](docs/api/quick-paste.md)。
   - 局域网剪贴板同步（lan-sync）——本机复制自动广播，其他终端的收件箱按来源节点分桶展示（每端最新 8 条），点击写回；libp2p（mDNS 发现 + gossipsub 广播），纯局域网，见 [`docs/features/lan-sync.md`](docs/features/lan-sync.md) 与接口契约 [`docs/api/lan-sync.md`](docs/api/lan-sync.md)。
   - 全局通知（notify）——右上角玻璃 toast：操作结果（回写/保存等）与后端内部错误（快捷键注册失败、托盘开关失败、lan-sync 节点异常等）统一经 `app://notify` 通道展示，见 [`docs/features/notify.md`](docs/features/notify.md) 与接口契约 [`docs/api/notify.md`](docs/api/notify.md)。
+  - **移动端（Android，0.2.9）**——手机作为「接收 + 转发终端」：前台运行节点接收局域网广播 → 收件箱 → 点条目写剪贴板（手动粘贴）；不监听、不广播、无后台保活（首版），见 [`docs/features/mobile.md`](docs/features/mobile.md) 与接口契约 [`docs/api/mobile.md`](docs/api/mobile.md)。
 - **规划中**：文件/图片字节传输、接收器模式、黑名单等，见 [`docs/features/lan-sync.md`](docs/features/lan-sync.md) 待办与 TODO.md。
 - 功能进度与版本变化记录在 `CHANGELOG.md`。
 
 ## 技术栈
 
-- **桌面壳**：Tauri 2（Rust）
-- **前端**：SolidJS + TypeScript + Vite，内置 i18n（开发阶段支持中文 / 英文）
+- **桌面壳**：Tauri 2（Rust）；**移动端**：Tauri 2 Android（Android WebView + Gradle，见 `gen/android/`）
+- **前端**：SolidJS + TypeScript + Vite，内置 i18n（开发阶段支持中文 / 英文），响应式（桌面侧栏 / 移动底部 tab）
 - **后端**：Rust，按功能域划分为独立 mod（`src-tauri/src/features/`）
 
 ## 架构
@@ -77,10 +78,15 @@ pnpm tauri build      # 桌面端打包
 - **局域网同步（lan-sync，规划中）已知限制（调研实测结论）**：
   - **Windows 虚拟网卡可能使 mDNS 发现失败**：本机存在虚拟网卡（尤其 WSL 虚拟交换机 / Hyper-V Default Switch）时，Windows 组播出口按路由 metric 选择，查询可能发进虚拟网段 → 本机"发现不了别的终端"（但仍能被发现）。已实测：关闭 WSL 虚拟交换机后双向发现恢复。临时规避：以管理员执行 `route delete 224.0.0.0 mask 240.0.0.0 <虚拟网卡IP>`，或调高虚拟网卡接口 metric（使其高于真实网卡）。
   - **广播单条上限 1MiB**：超限内容静默跳过广播（仅记日志），不做分片；分片随图片字节传输（TODO）一起实现。
+- **移动端（Android，0.2.9）已知限制**（详见 [`docs/features/mobile.md`](docs/features/mobile.md)）：
+  - **无后台保活**：应用退到后台节点可能被系统回收 → 收不到广播；前台自动恢复。
+  - **无剪贴板监听**：手机本地复制不会进历史/广播；历史页只有「从收件箱写剪贴板」的记录。
+  - **仅文本写入**：图片/文件字节无法写入手机剪贴板（图片仅元数据占位文本、文件路径条目禁用写回）。
+  - **mDNS 依赖 WiFi**：纯蜂窝网络下无组播，无法发现终端。
 
 ## 版本管理
 
-当前版本 `0.2.8`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
+当前版本 `0.2.9`。每次有新功能签发时按约定递增版本，规则见 [`docs/versioning.md`](docs/versioning.md)。
 
 ## 隐私
 

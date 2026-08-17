@@ -7,5 +7,8 @@ pub mod hooks;
 pub mod log;
 pub mod notify;
 pub mod peer_node;
+pub mod platform;
 pub mod state;
+/// 系统托盘（桌面专属：依赖 tauri tray-icon feature，移动端不编译，契约 mobile 5.1）。
+#[cfg(desktop)]
 pub mod tray;

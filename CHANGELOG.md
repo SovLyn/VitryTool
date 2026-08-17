@@ -2,6 +2,35 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
+## [0.2.9] - 2026-08-17
+
+### 新增
+
+- **移动端（Android）支持**，契约见 `docs/api/mobile.md`、功能文档 `docs/features/mobile.md`：
+  - **定位**：手机作为「接收 + 转发终端」——前台运行 libp2p 节点接收局域网剪贴板广播 → 收件箱 → 点条目写手机剪贴板 → 手动粘贴。**不监听**（Android 无可靠后台剪贴板监听）、**不广播**、**无后台保活**（首版）。
+  - **平台隔离（编译期）**：`Cargo.toml` target 条件依赖（桌面 clipboard-x / global-shortcut / window-state / single-instance，移动 clipboard-manager）；`lib.rs` 按 `#[cfg(desktop)]` / `#[cfg(mobile)]` 门控插件注册、托盘、quick_paste、窗口事件钩子与命令列表（quick_paste / 托盘 / capture / cleanup 移动端不注册）；capabilities 拆桌面 `default.json` 与移动 `mobile.json`（按 `platforms` 字段生效）。
+  - **`core/platform.rs`**：新命令 `getPlatformInfo`（`isMobile` / `platform` / `hotkeyCapability`，前端功能隔离唯一依据）；系统剪贴板写入平台分发（`write_text_plain` / 移动同步 `write_text_plain_sync`）；移动端可写文本提取（`mobile_writable_text`：text 优先 → html 剥标签 `strip_html` → 图片元数据占位）；全局快捷键能力判定从 quick_paste 迁入（core 自包含，`getHotkeyCapability` 命令改调，行为不变）。
+  - **移动端回写**：`writeClipboardEntry` / `writeLanInboxEntry` 移动端写**纯文本**后**显式入历史/置顶**（复用 capture 落盘逻辑：指纹去重置顶/淘汰，不依赖 Android 剪贴板读权限）；lan-sync 经 `core::hooks::mobile_clipboard_write` 通道解耦调用 clipboard_history 实现；**不触发广播**。新错误码 `clipboard.write_unsupported`（files-only 条目兜底，前端禁用 + 提示）。
+  - **Android 侧**：`gen/android` 脚手架（`tauri android init`）+ MainActivity 持有 `WifiManager.MulticastLock`（mDNS 组播接收必需）+ Manifest 权限（INTERNET / ACCESS_NETWORK_STATE / ACCESS_WIFI_STATE / CHANGE_WIFI_MULTICAST_STATE）。
+  - **前端**：`src/api/platform.ts`（getPlatformInfo + 惰性缓存）；App 启动平台识别（移动端不启动剪贴板监听、不下发托盘文案）；设置页隐藏广播开关与快速粘贴组；收件箱 files-only 条目移动端禁用写回（`lanSync.writeUnsupported` 提示）；**响应式布局**（640px 断点：侧栏 → 底部磨砂 tab bar + 导航图标、安全区 `env(safe-area-inset-*)`、触控目标 ≥44px、toast 顶部居中）。
+  - 新文案：`lanSync.writeUnsupported`、`clipboard.write_unsupported`，zh-CN / en-US 双语同步。
+  - 后端 dt（strip_html / mobile_writable_text / 能力判定迁移等），前端 vitest 适配（平台识别异步）；cargo test / fmt / clippy、vitest 94、tsc、pnpm build 全绿。
+  - **Android 构建验证通过**（本机，2026-08-17）：aarch64-linux-android 交叉编译（libp2p / clipboard-manager / tauri 全部编译通过）+ gradle 打包产出 `app-universal-debug.apk`（arm64-v8a）。
+  - **真机 E2E 通过**（用户手机，2026-08-17）：无线调试安装 → 主界面/底部 tab/设置页隔离 → mDNS 发现（在线终端 3，MulticastLock 生效）→ 桌面复制 → 手机收件箱接收 → **点条目 → 其他应用粘贴出正确内容** → 显式入历史（历史页条目 + 收藏）。
+  - **Android 启动图标品牌化**：新增 `scripts/render-android-icons.mjs`（galaxy.svg → 5 密度 mipmap 位图），替换 `gen/android` 默认图标（用户确认桌面图标生效）。
+  - **CD**：`release.yml` 新增 Android job（setup-java + Android SDK + Rust Android targets + NDK + keystore secrets 签名 → `tauri android build --apk` → 上传 Release 草稿）；`gen/android/app/build.gradle.kts` 配置 release 签名（读 `keystore.properties`，存在才启用）。
+
+### 修复
+
+- **Android 黑屏（真机发现）**：`tauri.conf.json` 的 `windows` 数组在 Android 上会被全部创建——quick-paste 透明 popup 覆盖主界面。修复：popup 移入 `quick_paste::init` 代码创建（`WebviewWindowBuilder`，功能域仅桌面编译），`tauri.conf.json` 仅保留主窗口。
+- **移动端设置页误报（真机发现）**：`Settings` 无条件调用 `getHotkey`/`getHotkeyCapability`（移动端命令未注册 → "Failed to save shortcut settings" toast）+ 「快速粘贴」组空标题。修复：平台识别后桌面才加载快捷键设置；快速粘贴整组（含标题）移动端隐藏。
+
+### 变更
+
+- 版本 0.2.8 → 0.2.9（三处同步）。
+- `global_shortcut_supported` 判定逻辑从 `features/quick_paste/service.rs` 迁至 `core/platform.rs`（行为不变，core 自包含）。
+- 环境（本机）：JDK 17（Microsoft OpenJDK）、Android SDK（cmdline-tools / platform-tools / build-tools / platforms 34-36）、NDK r26.1、Rust Android targets 安装完成（`dev/android-setup/download.mjs` 下载脚本，绕过 schannel TLS 故障）。
+
 ## [0.2.8] - 2026-08-16
 
 ### 新增

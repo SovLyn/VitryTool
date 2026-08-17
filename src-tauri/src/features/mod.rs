@@ -15,6 +15,9 @@
 pub mod clipboard_history;
 
 /// 快速粘贴（全局快捷键 + 置顶小屏）。
+/// 桌面专属：依赖 global-shortcut / window-state 插件，移动端不编译
+/// （契约 mobile 5.1：移动端无全局快捷键/小屏概念，命令不注册、前端无入口）。
+#[cfg(desktop)]
 pub mod quick_paste;
 
 /// 局域网剪贴板同步（0.2.5；节点层见 core/peer_node）。

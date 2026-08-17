@@ -13,8 +13,8 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 use tauri::{
-    App, AppHandle, Emitter, Manager, PhysicalPosition, Position, WebviewWindow, Window,
-    WindowEvent,
+    App, AppHandle, Emitter, Manager, PhysicalPosition, Position, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, Window, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
 
@@ -75,8 +75,25 @@ fn register_failed_err(err: impl std::fmt::Display) -> ApiError {
     )
 }
 
-/// 初始化：挂载状态 + 注册已保存的快捷键（setup 阶段调用）。
+/// 初始化：创建小屏 popup 窗口 + 挂载状态 + 注册已保存的快捷键（setup 阶段调用）。
+///
+/// popup 窗口 0.2.9 起由代码创建（原 tauri.conf.json 声明）：quick_paste 功能域仅桌面
+/// 编译（features/mod.rs `#[cfg(desktop)]`），移动端不创建 popup（单窗口，契约 mobile 5.1）。
 pub fn init(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+    // 小屏：透明/无边框/置顶/跳过任务栏/初始隐藏（契约 5.4，属性与原 tauri.conf.json 一致）
+    WebviewWindowBuilder::new(app, POPUP_LABEL, WebviewUrl::App("popup.html".into()))
+        .title("VitryTool 快速粘贴")
+        .visible(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .focused(false)
+        .inner_size(440.0, 520.0)
+        .build()?;
+
     app.manage(QuickPasteState::default());
 
     let handle = app.handle();
@@ -110,12 +127,12 @@ pub fn get_hotkey(app: AppHandle) -> Result<Option<String>, ApiError> {
     Ok(hotkey)
 }
 
-/// 读取当前环境是否支持全局快捷键（契约 5.8）。
+/// 读取当前环境是否支持全局快捷键（契约 5.8；判定逻辑在 core::platform，0.2.9 迁移）。
 ///
 /// `supported=false` 时设置页不提供快捷键设置，改为显示平台警告。
 #[tauri::command]
 pub fn get_hotkey_capability() -> Result<HotkeyCapabilityResp, ApiError> {
-    let supported = super::service::global_shortcut_supported(
+    let supported = crate::core::platform::global_shortcut_supported(
         std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
         std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
         std::env::var("GDK_BACKEND").ok().as_deref(),

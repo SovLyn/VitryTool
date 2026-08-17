@@ -29,7 +29,8 @@
     "capture_failed": "读取剪贴板失败",
     "entry_not_found": "条目不存在",
     "invalid_max_entries": "上限需在 1 到 1024 之间",
-    "storage_error": "历史数据读写失败"
+    "storage_error": "历史数据读写失败",
+    "write_unsupported": "该内容（文件路径）在移动端不支持写入剪贴板"
   },
   "quickPaste": {
     "title": "快捷操作",
@@ -76,6 +77,7 @@
     "clearConfirm": "确定清空收件箱？",
     "delete": "删除",
     "writtenBack": "已写回剪贴板",
+    "writeUnsupported": "该内容（文件路径）在移动端不支持写入剪贴板",
     "items": "{count} 条",
     "settingsTitle": "局域网同步",
     "broadcast": "广播",

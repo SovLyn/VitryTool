@@ -1,7 +1,8 @@
 name: Release
 
-# CD：打 tag（v*）触发 → 三平台构建安装包 → GitHub Release 草稿（人工确认后发布）。
-# 发布流程：git tag v0.2.7 && git push origin v0.2.7
+# CD：打 tag（v*）触发 → 桌面三平台构建安装包 + Android APK → GitHub Release 草稿
+# （人工确认后发布）。0.2.9 起含 Android 目标（见 docs/api/mobile.md）。
+# 发布流程：git tag v0.2.9 && git push origin v0.2.9
 # 说明：tag 即版本（本项目契约 docs/versioning.md），不引入 release 分支/自动打 tag；
 #       显式 target 矩阵（与各 runner 宿主架构一致）、timeout、fetch-depth、结构化 releaseBody。
 on:
@@ -89,6 +90,8 @@ jobs:
             - 局域网剪贴板同步（lan-sync，libp2p + mDNS）
             - 主题（亮色 / 暗色 / 跟随系统）与设置页
             - 系统托盘（广播 / 接收快速开关）与窗口状态记忆
+            - 全局通知系统（notify）
+            - **移动端（Android）**：收件箱接收 + 写剪贴板（见 docs/features/mobile.md）
             - 详细变更见 [CHANGELOG.md](CHANGELOG.md)
 
             ## 校验
@@ -98,3 +101,85 @@ jobs:
             | Windows | 见附件 |
             | macOS | 见附件 |
             | Linux | 见附件 |
+            | Android (APK) | 见附件 |
+
+  android:
+    name: Android (APK)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Rust toolchain (Android targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
+
+      - name: Install NDK (tauri 模板锁定版本)
+        run: sdkmanager "ndk;26.1.10909125"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Android release 签名（0.2.9，见 docs/api/mobile.md）：
+      # 在仓库 Settings → Secrets 配置后启用正式签名：
+      #   ANDROID_KEYSTORE_BASE64    = keystore 文件 base64（keytool -genkeypair 生成后 base64）
+      #   ANDROID_KEYSTORE_PASSWORD  = 密钥库口令
+      #   ANDROID_KEY_ALIAS          = 别名
+      #   ANDROID_KEY_PASSWORD       = 密钥口令
+      # 未配置时以 debug 签名构建（仅自测，不可发布）。
+      - name: Configure release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/keystore.p12
+            # heredoc 顶格（前导空格会写入 properties 导致 key 解析失败）；
+            # storeFile 相对 app/ 模块目录解析（build.gradle.kts: file()），
+            # keystore.p12 在 gen/android/ → 用 ../ 上跳一级
+            cat > src-tauri/gen/android/keystore.properties <<EOF
+storeFile=../keystore.p12
+storePassword=$ANDROID_KEYSTORE_PASSWORD
+keyAlias=$ANDROID_KEY_ALIAS
+keyPassword=$ANDROID_KEY_PASSWORD
+EOF
+            echo "keystore configured"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 not set, building unsigned APK (self-test only)"
+          fi
+
+      - name: Build Android APK
+        run: pnpm tauri android build --apk
+
+      # 上传到与 desktop job 相同的 Release 草稿（同 tag：先到先建、后到更新）
+      - name: Upload APK to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" --draft --generate-notes 2>/dev/null || true
+          gh release upload "${{ github.ref_name }}" src-tauri/gen/android/app/build/outputs/apk/*/*.apk --clobber

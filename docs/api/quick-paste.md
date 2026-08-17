@@ -122,7 +122,8 @@ type HotkeyCapabilityResp = { supported: boolean };
 
 ### 5.4 小屏窗口
 
-- 预创建于 `tauri.conf.json`（label `quick-paste`）：透明、无边框、置顶、跳过任务栏、初始隐藏、不可缩放、固定尺寸；独立 HTML 入口 `popup.html`（Vite 多入口）。
+- **0.2.9 起由代码创建**（`quick_paste::init` 中 `WebviewWindowBuilder`，label `quick-paste`）：透明、无边框、置顶、跳过任务栏、初始隐藏、不可缩放、固定尺寸；独立 HTML 入口 `popup.html`（Vite 多入口）。
+- **背景（0.2.9 移动端修正）**：原在 `tauri.conf.json` 的 `windows` 数组声明——Android 上 Tauri 会把该数组的窗口也创建（快速粘贴 popup 覆盖主界面，实测黑屏）。quick_paste 功能域仅桌面编译（`features/mod.rs` `#[cfg(desktop)]`），故 popup 移入代码创建后移动端天然不创建；`tauri.conf.json` 仅保留主窗口。
 - 每次 show 定位到鼠标光标附近（复用 `Window::cursor_position` + 当前显示器边界 clamp），**不记忆位置**（window-state 插件 denylist 排除）。
 - 回写完成后隐藏而非销毁，下次秒开。
 - 主题：复用 `theme.tsx`（localStorage 同源共享），`data-theme` 驱动同一套 CSS 变量。
@@ -155,12 +156,19 @@ type HotkeyCapabilityResp = { supported: boolean };
   - 例外：`GDK_BACKEND` 显式包含 `x11`（GTK 走 XWayland）时判定为可能生效 → `supported = true`。
 - 已知限制：Wayland 下即使 `GDK_BACKEND=x11` 也依赖合成器对 XWayland 抓键的支持，不作为保证；警告文案据此提示用户切换 X11 会话。
 
+### 5.9 移动端不可用（0.2.9，契约 mobile 5.1）
+
+- 移动端无全局快捷键、无小屏窗口、无托盘概念：quick_paste 功能域**移动端不编译、命令不注册**（依赖 global-shortcut / window-state 桌面插件），前端无入口。
+- `getPlatformInfo`（契约 mobile）返回 `hotkeyCapability.supported = false`（移动端恒为 false），前端据此不渲染设置页「快速粘贴」整组（含 Wayland 警告分支）。
+- `setTrayLabels` 移动端不调用；托盘相关代码（`core::tray`）编译期隔离（`#[cfg(desktop)]`）。
+
 ## 6. 破坏性影响
 
 - 新功能域，无既有接口破坏。
 - 依赖新增（Cargo.toml）：`tauri-plugin-global-shortcut`、`tauri-plugin-window-state`。
 - 前端无新 npm 依赖（popup 与主窗口共用既有 `@tauri-apps/api`）。
-- capabilities 新增 `quick-paste`（`core:default`）；`tauri.conf.json` 新增 `quick-paste` 窗口；`vite.config.ts` 增加 `popup.html` 多入口。
+- capabilities 新增 `quick-paste`（`core:default`）；`vite.config.ts` 增加 `popup.html` 多入口。
+- 0.2.9：popup 窗口从 `tauri.conf.json` 移入 `quick_paste::init` 代码创建（Android 上 windows 数组会被全部创建导致 popup 覆盖主界面，见 5.4）。
 - 版本递增 `minor` → 0.2.0（三处同步 + CHANGELOG）。
 - 0.2.3（三处同步 + CHANGELOG）：新增 `getHotkeyCapability` 命令与设置页平台警告，不破坏既有接口。
 

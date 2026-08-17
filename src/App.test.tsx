@@ -25,7 +25,13 @@ vi.mock("./api/quick-paste", () => ({
   setTrayLabels: vi.fn(async () => undefined),
 }));
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async () => undefined),
+  invoke: vi.fn(async (cmd: string) => {
+    // 平台识别（0.2.9）：测试默认按桌面处理（触发监听启动 / 托盘文案下发）
+    if (cmd === "get_platform_info") {
+      return { isMobile: false, platform: "windows", hotkeyCapability: { supported: true } };
+    }
+    return undefined;
+  }),
   convertFileSrc: vi.fn((p: string) => p),
 }));
 // 应用级监听（listener.ts）广播与历史页监听刷新事件
@@ -68,6 +74,9 @@ describe("App", () => {
 
   it("挂载时以默认语言下发托盘菜单文案（契约 quick-paste 5.5）", async () => {
     renderApp();
+    // 平台识别（异步）完成后 isMobile=false → createEffect 下发托盘文案
+    await Promise.resolve();
+    await Promise.resolve();
     expect(setTrayLabels).toHaveBeenCalledWith(
       "显示主窗口",
       "退出",

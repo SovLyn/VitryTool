@@ -11,17 +11,25 @@ use super::service::{
 use super::store::{HistoryStore, StoreBackend};
 use crate::core::error::ApiError;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(desktop)]
+use tauri::Manager;
 
 /// 插件保存图片的目录（插件默认路径，相对应用数据目录，见契约 5.4）。
 /// 分开 join 两个组件，避免单个含 `/` 的字符串在 Windows 上保留正斜杠、
 /// 与插件落盘路径（`\`）不一致导致孤儿清理误判（见 service::orphan_files 注释）。
+/// 桌面专属（移动端无图片字节，契约 mobile 5.2）。
+#[cfg(desktop)]
 const IMAGE_DIR_SUB: &str = "tauri-plugin-clipboard-x";
+#[cfg(desktop)]
 const IMAGE_DIR_NAME: &str = "images";
 
 const ERR_CAPTURE: &str = "clipboard.capture_failed";
 const ERR_ENTRY_NOT_FOUND: &str = "clipboard.entry_not_found";
 const ERR_INVALID_MAX: &str = "clipboard.invalid_max_entries";
+/// 仅移动端：条目内容无法写入剪贴板（如仅含文件路径），契约 mobile 4。
+#[allow(dead_code)]
+const ERR_WRITE_UNSUPPORTED: &str = "clipboard.write_unsupported";
 
 /// 捕捉互斥锁：主窗口与小窗（快速粘贴 popup）可能同时发起 `capture_clipboard`，
 /// 锁内串行化「读 store → 去重置顶 → 写 store」，避免并发读到同一状态导致重复插入。
@@ -39,6 +47,8 @@ fn entry_not_found(id: &str) -> ApiError {
     ApiError::new(ERR_ENTRY_NOT_FOUND, format!("entry not found: {id}"))
 }
 
+/// 图片目录（桌面专属，见 IMAGE_DIR_SUB 注释）。
+#[cfg(desktop)]
 fn image_dir(app: &AppHandle) -> Result<PathBuf, ApiError> {
     let base = app
         .path()
@@ -51,6 +61,8 @@ fn now_iso8601() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
+/// 列出目录下全部 .png（桌面专属，图片兜底清理用）。
+#[cfg(desktop)]
 fn list_png_files(dir: &Path) -> Vec<PathBuf> {
     let Ok(read_dir) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -62,6 +74,7 @@ fn list_png_files(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// 逐个删除文件（忽略失败；桌面图片/测试辅助）。
 fn delete_files(paths: &[PathBuf]) {
     for p in paths {
         let _ = std::fs::remove_file(p);
@@ -70,9 +83,11 @@ fn delete_files(paths: &[PathBuf]) {
 
 /// 读取剪贴板各格式（逐格式独立容错，契约 5.2-1）。
 ///
+/// 桌面专属（移动端不监听、无图片/文件读取，契约 mobile 5.1-5.2）。
 /// 返回 `(条目, 本次 `read_image` 落盘的图片路径列表)`。图片在本函数内提前落盘（插件行为），
 /// 但后续去重可能丢弃该图片（例如命中一个不含该图的旧条目），因此调用方需根据返回的路径
 /// 清理未最终引用者，避免产生孤儿文件（见 `capture_clipboard`）。
+#[cfg(desktop)]
 async fn read_clipboard(app: &AppHandle) -> (Option<ClipboardEntry>, Vec<String>) {
     let mut entry = ClipboardEntry {
         id: uuid::Uuid::new_v4().to_string(),
@@ -163,6 +178,8 @@ async fn read_clipboard(app: &AppHandle) -> (Option<ClipboardEntry>, Vec<String>
 }
 
 /// 捕捉：监听事件触发。读剪贴板 → 落盘图片 → 去重置顶 → 即时淘汰 → 写回 store（契约 5.2）。
+/// 桌面专属（移动端无剪贴板监听，契约 mobile 5.1）。
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn capture_clipboard(app: AppHandle) -> Result<Option<ClipboardEntry>, ApiError> {
     let (incoming, written_images) = read_clipboard(&app).await;
@@ -234,6 +251,7 @@ pub async fn get_clipboard_history(app: AppHandle) -> Result<Vec<ClipboardEntry>
 }
 
 /// 回写：按条目原始格式写回系统剪贴板（契约 5.5）。
+/// 移动端：写纯文本（契约 mobile 5.2）并显式置顶（契约 mobile 5.3）。
 #[tauri::command]
 pub async fn write_clipboard_entry(app: AppHandle, id: String) -> Result<(), ApiError> {
     let store = StoreBackend::new(&app)?;
@@ -243,43 +261,135 @@ pub async fn write_clipboard_entry(app: AppHandle, id: String) -> Result<(), Api
         .find(|e| e.id == id)
         .ok_or_else(|| entry_not_found(&id))?;
 
-    let kind = if entry.html.is_some() {
-        "html"
-    } else if entry.rtf.is_some() {
-        "rtf"
-    } else if entry.text.is_some() {
-        "text"
-    } else if entry.image.is_some() {
-        "image"
-    } else {
-        "files"
-    };
-    log::debug!("write_clipboard_entry: id={id} kind={kind}");
+    #[cfg(desktop)]
+    {
+        let kind = if entry.html.is_some() {
+            "html"
+        } else if entry.rtf.is_some() {
+            "rtf"
+        } else if entry.text.is_some() {
+            "text"
+        } else if entry.image.is_some() {
+            "image"
+        } else {
+            "files"
+        };
+        log::debug!("write_clipboard_entry: id={id} kind={kind}");
 
-    if let Some(html) = &entry.html {
-        tauri_plugin_clipboard_x::write_html(entry.text.clone().unwrap_or_default(), html.clone())
+        if let Some(html) = &entry.html {
+            tauri_plugin_clipboard_x::write_html(
+                entry.text.clone().unwrap_or_default(),
+                html.clone(),
+            )
             .await
             .map_err(capture_err)?;
-    } else if let Some(rtf) = &entry.rtf {
-        tauri_plugin_clipboard_x::write_rtf(entry.text.clone().unwrap_or_default(), rtf.clone())
+        } else if let Some(rtf) = &entry.rtf {
+            tauri_plugin_clipboard_x::write_rtf(
+                entry.text.clone().unwrap_or_default(),
+                rtf.clone(),
+            )
             .await
             .map_err(capture_err)?;
-    } else if let Some(text) = &entry.text {
-        tauri_plugin_clipboard_x::write_text(text.clone())
-            .await
-            .map_err(capture_err)?;
-    } else if let Some(img) = &entry.image {
-        if !img.missing {
-            tauri_plugin_clipboard_x::write_image(img.path.clone())
+        } else if let Some(text) = &entry.text {
+            tauri_plugin_clipboard_x::write_text(text.clone())
+                .await
+                .map_err(capture_err)?;
+        } else if let Some(img) = &entry.image {
+            if !img.missing {
+                tauri_plugin_clipboard_x::write_image(img.path.clone())
+                    .await
+                    .map_err(capture_err)?;
+            }
+        } else if let Some(files) = &entry.files {
+            tauri_plugin_clipboard_x::write_files(files.paths.clone())
                 .await
                 .map_err(capture_err)?;
         }
-    } else if let Some(files) = &entry.files {
-        tauri_plugin_clipboard_x::write_files(files.paths.clone())
-            .await
-            .map_err(capture_err)?;
+        Ok(())
     }
+
+    #[cfg(mobile)]
+    {
+        write_entry_mobile(&app, &entry).await
+    }
+}
+
+/// 移动端：从历史条目提取可写纯文本并写入剪贴板 + 显式置顶（契约 mobile 5.2-5.3）。
+/// 仅含文件路径 → 返回 `clipboard.write_unsupported`（前端已禁用入口，此为兜底）。
+#[cfg(mobile)]
+async fn write_entry_mobile(app: &AppHandle, entry: &ClipboardEntry) -> Result<(), ApiError> {
+    let placeholder = entry.image.as_ref().map(|img| {
+        let name = Path::new(&img.path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| img.path.clone());
+        let dims = match (img.width, img.height) {
+            (w, h) if w > 0 && h > 0 => format!(" ({w}x{h})"),
+            _ => String::new(),
+        };
+        format!("[图片] {name}{dims}")
+    });
+    let Some(plain) = crate::core::platform::mobile_writable_text(
+        entry.text.as_deref(),
+        entry.html.as_deref(),
+        placeholder,
+    ) else {
+        log::warn!(
+            "write_clipboard_entry: id={} unsupported on mobile (files only)",
+            entry.id
+        );
+        return Err(ApiError::new(
+            ERR_WRITE_UNSUPPORTED,
+            "entry contains only file paths, cannot write on mobile",
+        ));
+    };
+    write_text_and_record(app, plain)
+}
+
+/// 移动端：写系统剪贴板（纯文本，契约 mobile 5.2）并**显式**记录进本地历史
+/// （契约 mobile 5.3：复用 capture 落盘逻辑——指纹去重置顶/即时淘汰；内容已在内存，
+/// 不依赖 Android 剪贴板读权限；**不触发** lan-sync 广播钩子，移动端不广播）。
+///
+/// 同步实现（clipboard-manager 写为同步 API）：供 `write_clipboard_entry`（置顶语义
+/// 由 dedup 命中保证）与 lan-sync 移动端回写（经 `register_mobile_clipboard_write`
+/// 钩子）复用。
+#[cfg(mobile)]
+fn write_text_and_record(app: &AppHandle, text: String) -> Result<(), ApiError> {
+    crate::core::platform::write_text_plain_sync(app, text.clone())
+        .map_err(|e| ApiError::new(ERR_CAPTURE, format!("write clipboard: {e}")))?;
+
+    let incoming = ClipboardEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        captured_at: now_iso8601(),
+        favorited_at: None,
+        text: Some(text),
+        html: None,
+        rtf: None,
+        image: None,
+        files: None,
+    };
+    // 与 capture 同持 CAPTURE_LOCK，串行化 store 段
+    let _guard = CAPTURE_LOCK.lock().unwrap();
+    let store = StoreBackend::new(app)?;
+    let max = store.load_max_entries()?;
+    let mut entries = store.load_entries()?;
+    let outcome = dedup_promote_and_evict(&mut entries, incoming, max);
+    store.save_entries(&entries)?;
+    delete_files(&outcome.evicted_files);
+    log::debug!(
+        "mobile write_text_and_record: is_new={} total={}",
+        outcome.is_new,
+        entries.len()
+    );
     Ok(())
+}
+
+/// 注册移动端剪贴板写入钩子（setup 阶段调用；lan-sync 移动端回写经 core::hooks 调用）。
+#[cfg(mobile)]
+pub fn register_mobile_clipboard_write() {
+    crate::core::hooks::register_mobile_clipboard_write(Box::new(|app, text| {
+        write_text_and_record(app, text.to_string()).map_err(|e| e.to_string())
+    }));
 }
 
 /// 单条删除：删除条目并尝试删除其图片文件（失败留给定时兜底，契约 5.6）。
@@ -292,6 +402,7 @@ pub async fn delete_clipboard_entry(app: AppHandle, id: String) -> Result<(), Ap
         .position(|e| e.id == id)
         .ok_or_else(|| entry_not_found(&id))?;
     let removed = entries.remove(pos);
+    #[cfg(desktop)]
     if let Some(img) = &removed.image {
         let _ = std::fs::remove_file(&img.path);
     }
@@ -320,11 +431,12 @@ pub async fn set_entry_favorite(
     store.save_entries(&entries)
 }
 
-/// 清空全部：清空条目并删除图片目录下全部 .png（契约 5.6）。
+/// 清空全部：清空条目并删除图片目录下全部 .png（契约 5.6；图片删除桌面专属）。
 #[tauri::command]
 pub async fn clear_clipboard_history(app: AppHandle) -> Result<(), ApiError> {
     let store = StoreBackend::new(&app)?;
     store.save_entries(&[])?;
+    #[cfg(desktop)]
     if let Ok(dir) = image_dir(&app) {
         let removed = list_png_files(&dir);
         log::debug!(
@@ -337,6 +449,8 @@ pub async fn clear_clipboard_history(app: AppHandle) -> Result<(), ApiError> {
 }
 
 /// 定时兜底清理：扫描图片目录，删除无条目引用的孤儿图片（契约 5.4-②）。
+/// 桌面专属（移动端无图片字节）。
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn cleanup_orphan_images(app: AppHandle) -> Result<CleanupResp, ApiError> {
     let store = StoreBackend::new(&app)?;

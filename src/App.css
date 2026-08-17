@@ -942,3 +942,136 @@ button:active {
   font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
   font-size: 0.85rem;
 }
+
+/* ==========================================================================
+   移动端响应式（0.2.9，契约 docs/api/mobile.md 5.1 / frontend-design）
+   - 断点 640px：左侧栏 → 底部磨砂 tab bar（内容下滚，浮动 chrome，apple-design §12）
+   - 触控目标 ≥44px、全面屏安全区（env(safe-area-inset-*)）
+   - toast 顶部居中 + 安全区（NotificationProvider 组件零改动）
+   ========================================================================== */
+
+/* 导航图标：桌面侧栏不显示（保持既有文字布局），仅移动端 tab 显示 */
+.nav-icon {
+  display: none;
+}
+
+.nav-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+@media (max-width: 640px) {
+  /* 骨架：内容在上、底部 tab 在下 */
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    order: 2;
+    width: 100%;
+    flex-direction: row;
+    align-items: stretch;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-right: none;
+    border-top: 1px solid var(--hairline);
+    z-index: 20;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    gap: 4px;
+  }
+
+  .sidebar-bottom {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .nav-item {
+    flex: 1;
+    min-height: 52px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 8px 4px;
+    border-radius: 12px;
+    text-align: center;
+    font-size: 0.75rem;
+  }
+
+  .nav-icon {
+    display: flex;
+  }
+
+  .nav-badge {
+    position: absolute;
+    top: 4px;
+    right: calc(50% - 22px);
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
+    font-size: 0.65rem;
+    border-radius: 8px;
+  }
+
+  .content {
+    order: 1;
+  }
+
+  /* 顶栏：顶部安全区（状态栏） */
+  .toolbar {
+    padding: calc(14px + env(safe-area-inset-top)) 16px 14px;
+  }
+
+  .content-body {
+    padding: 12px 16px 28px;
+  }
+
+  /* 触控目标放大（frontend-design：≥44px） */
+  .entry-card {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+
+  .entry-card .entry-preview img {
+    max-height: 120px;
+    max-width: 200px;
+  }
+
+  .entry-delete,
+  .entry-star {
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+
+  .settings-row {
+    padding: 14px 16px;
+  }
+
+  .segmented button,
+  .number-input {
+    min-height: 40px;
+  }
+
+  .btn-ghost,
+  .btn-primary,
+  .btn-danger {
+    min-height: 44px;
+    padding: 10px 18px;
+  }
+
+  /* toast：顶部居中 + 顶部安全区（组件零改动） */
+  .toast-stack {
+    top: calc(12px + env(safe-area-inset-top));
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-width: none;
+  }
+
+  /* 弹窗：底部留出手势条安全区 */
+  .dialog {
+    padding-bottom: calc(22px + env(safe-area-inset-bottom));
+  }
+}

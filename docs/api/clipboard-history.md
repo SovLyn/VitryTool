@@ -190,6 +190,13 @@ type GetMaxEntriesResp = number;
 - **跨窗同步**：收藏变更由发起窗口 `emit` 既有 `clipboard-history://updated` 事件，两窗经既有刷新路径同步（小屏激活期间保持当前选中条目）。
 - **并发**：`setEntryFavorite` 的「读 → 改 → 写」与 `capture_clipboard` 同持 `CAPTURE_LOCK`，互斥串行化，防丢失更新。
 
+### 5.9 移动端差异（0.2.9，契约 mobile 5.2–5.3）
+
+- **无剪贴板监听**：移动端 `startClipboardCapture` 不启动，历史无自动捕捉来源；历史页数据源为「从收件箱写剪贴板」的条目（经 `writeLanInboxEntry` 显式入历史，见契约 lan-sync 5.8）。
+- **回写写纯文本**：`writeClipboardEntry` 移动端走 `tauri-plugin-clipboard-manager`，内容按契约 mobile 5.2 提取纯文本（text 优先 → html 剥标签 → imageMeta 占位）；仅含文件路径的条目**不写**（前端禁用 + 兜底错误码 `clipboard.write_unsupported`）。
+- **显式置顶**：移动端回写后同指纹显式置顶（不新增），与桌面「写回即置顶」一致；不依赖系统监听。
+- **图片条目**：移动端无图片字节（收件箱仅元数据），历史中图片条目仅来自桌面端同步场景（TODO），v1 移动端历史以文本为主。
+
 ## 6. 破坏性影响
 
 - 新功能，无既有接口破坏。

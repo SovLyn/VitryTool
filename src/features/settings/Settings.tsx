@@ -24,6 +24,7 @@ import {
   type LanSyncStatus,
 } from "../../api/lan-sync";
 import { notify, UNKNOWN_NOTIFY_CODE, type NotifyLevel } from "../../api/notify";
+import { getPlatformInfo } from "../../api/platform";
 import { getHotkey, getHotkeyCapability, setHotkey } from "../../api/quick-paste";
 import { locales, useI18n, type Locale } from "../../i18n";
 import { useTheme, type Theme } from "../../theme";
@@ -135,16 +136,27 @@ export function Settings() {
   const [loadError, setLoadError] = createSignal("");
   /** 全局快捷键能力检测：null=加载中；false=当前环境不支持（隐藏设置入口、显示警告）。 */
   const [hotkeySupported, setHotkeySupported] = createSignal<boolean | null>(null);
+  /** 是否移动端（null=加载中）：隐藏广播开关与快速粘贴组（契约 mobile 5.1）。 */
+  const [isMobile, setIsMobile] = createSignal<boolean | null>(null);
   /** 局域网同步状态（lan-sync，0.2.5）。 */
   const [lanStatus, setLanStatus] = createSignal<LanSyncStatus | null>(null);
   const [terminalInput, setTerminalInput] = createSignal("");
   const [savedTerminal, setSavedTerminal] = createSignal("");
 
   onMount(() => {
-    // 检测失败按「支持」处理（fail-open，不打扰正常环境用户）
-    void getHotkeyCapability()
-      .then((c) => setHotkeySupported(c.supported))
-      .catch(() => setHotkeySupported(true));
+    // 平台识别（契约 mobile 5.1）：移动端隐藏广播开关 / 快速粘贴组
+    void getPlatformInfo()
+      .then((info) => {
+        setIsMobile(info.isMobile);
+        // 桌面才需要快捷键能力与已存快捷键（移动端命令未注册，调用会报错）
+        if (!info.isMobile) {
+          void loadHotkeySettings();
+        }
+      })
+      .catch(() => {
+        setIsMobile(false); // 失败按桌面 fail-open
+        void loadHotkeySettings();
+      });
 
     void getMaxEntries()
       .then((n) => {
@@ -152,10 +164,6 @@ export function Settings() {
         setSavedMax(n);
       })
       .catch((err) => setLoadError(t(getErrorCode(err) || "clipboard.storage_error")));
-
-    void getHotkey()
-      .then((hk) => setHotkeyValue(hk ?? ""))
-      .catch((err) => setLoadError(t(getErrorCode(err) || "quickPaste.storage_error")));
 
     refreshLanStatus();
 
@@ -167,6 +175,18 @@ export function Settings() {
       void unlisten.then((fn) => fn());
     });
   });
+
+  /** 加载快捷键能力检测与已存快捷键（桌面专属，移动端不调用）。 */
+  function loadHotkeySettings() {
+    // 检测失败按「支持」处理（fail-open，不打扰正常环境用户）
+    void getHotkeyCapability()
+      .then((c) => setHotkeySupported(c.supported))
+      .catch(() => setHotkeySupported(true));
+
+    void getHotkey()
+      .then((hk) => setHotkeyValue(hk ?? ""))
+      .catch((err) => setLoadError(t(getErrorCode(err) || "quickPaste.storage_error")));
+  }
 
   /** 拉取 lan-sync 状态（初始加载 + 设置变化事件刷新）。 */
   async function refreshLanStatus() {
@@ -315,21 +335,24 @@ export function Settings() {
         <Show when={lanStatus()} fallback={<div class="settings-row"><span class="settings-label">{t("lanSync.nodeOffline")}</span></div>}>
           {(status) => (
             <>
-              <div class="settings-row">
-                <div>
-                  <div class="settings-label">{t("lanSync.broadcast")}</div>
-                  <div class="settings-desc">{t("lanSync.broadcastDesc")}</div>
+              {/* 广播开关：桌面专属（移动端无广播实现，契约 mobile 5.1） */}
+              <Show when={isMobile() === false}>
+                <div class="settings-row">
+                  <div>
+                    <div class="settings-label">{t("lanSync.broadcast")}</div>
+                    <div class="settings-desc">{t("lanSync.broadcastDesc")}</div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={status().broadcastEnabled}
+                    class={status().broadcastEnabled ? "switch on" : "switch"}
+                    onClick={() => void toggleLan("broadcast", !status().broadcastEnabled)}
+                  >
+                    <span class="switch-knob" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={status().broadcastEnabled}
-                  class={status().broadcastEnabled ? "switch on" : "switch"}
-                  onClick={() => void toggleLan("broadcast", !status().broadcastEnabled)}
-                >
-                  <span class="switch-knob" />
-                </button>
-              </div>
+              </Show>
               <div class="settings-row">
                 <div>
                   <div class="settings-label">{t("lanSync.receive")}</div>
@@ -372,28 +395,33 @@ export function Settings() {
         </Show>
       </div>
 
-      <div class="settings-group">
-        <div class="settings-group-title">{t("quickPaste.title")}</div>
-        <Show
-          when={hotkeySupported() !== false}
-          fallback={
+      {/* 快速粘贴：桌面专属（移动端无全局快捷键，契约 mobile 5.1），整组含标题隐藏 */}
+      <Show when={isMobile() === false}>
+        <div class="settings-group">
+          <div class="settings-group-title">{t("quickPaste.title")}</div>
+          <Show
+            when={hotkeySupported() !== false}
+            fallback={
+              <Show when={hotkeySupported() === false}>
+                <div class="settings-row">
+                  <div class="message warning">
+                    <div class="settings-label">{t("quickPaste.unsupportedTitle")}</div>
+                    <div class="settings-desc">{t("quickPaste.unsupportedDesc")}</div>
+                  </div>
+                </div>
+              </Show>
+            }
+          >
             <div class="settings-row">
-              <div class="message warning">
-                <div class="settings-label">{t("quickPaste.unsupportedTitle")}</div>
-                <div class="settings-desc">{t("quickPaste.unsupportedDesc")}</div>
+              <div>
+                <div class="settings-label">{t("quickPaste.hotkey")}</div>
+                <div class="settings-desc">{t("quickPaste.hotkeyDesc")}</div>
               </div>
+              <HotkeyRecorder value={hotkey()} onChange={(hk) => void saveHotkey(hk)} />
             </div>
-          }
-        >
-          <div class="settings-row">
-            <div>
-              <div class="settings-label">{t("quickPaste.hotkey")}</div>
-              <div class="settings-desc">{t("quickPaste.hotkeyDesc")}</div>
-            </div>
-            <HotkeyRecorder value={hotkey()} onChange={(hk) => void saveHotkey(hk)} />
-          </div>
-        </Show>
-      </div>
+          </Show>
+        </div>
+      </Show>
 
       {loadError() && (
         <div class="settings-row">
