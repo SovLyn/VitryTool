@@ -159,15 +159,12 @@ jobs:
         run: |
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/keystore.p12
-            # heredoc 顶格（前导空格会写入 properties 导致 key 解析失败）；
+            # printf 输出无缩进（heredoc 会因 YAML 缩进写入前导空格导致 properties 解析失败）；
             # storeFile 相对 app/ 模块目录解析（build.gradle.kts: file()），
             # keystore.p12 在 gen/android/ → 用 ../ 上跳一级
-            cat > src-tauri/gen/android/keystore.properties <<EOF
-storeFile=../keystore.p12
-storePassword=$ANDROID_KEYSTORE_PASSWORD
-keyAlias=$ANDROID_KEY_ALIAS
-keyPassword=$ANDROID_KEY_PASSWORD
-EOF
+            printf 'storeFile=../keystore.p12\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" \
+              > src-tauri/gen/android/keystore.properties
             echo "keystore configured"
           else
             echo "::warning::ANDROID_KEYSTORE_BASE64 not set, building unsigned APK (self-test only)"
