@@ -80,19 +80,25 @@ fn register_failed_err(err: impl std::fmt::Display) -> ApiError {
 /// popup 窗口 0.2.9 起由代码创建（原 tauri.conf.json 声明）：quick_paste 功能域仅桌面
 /// 编译（features/mod.rs `#[cfg(desktop)]`），移动端不创建 popup（单窗口，契约 mobile 5.1）。
 pub fn init(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    // 小屏：透明/无边框/置顶/跳过任务栏/初始隐藏（契约 5.4，属性与原 tauri.conf.json 一致）
-    WebviewWindowBuilder::new(app, POPUP_LABEL, WebviewUrl::App("popup.html".into()))
-        .title("VitryTool 快速粘贴")
-        .visible(false)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .focused(false)
-        .inner_size(440.0, 520.0)
-        .build()?;
+    // 小屏：透明/无边框/置顶/跳过任务栏/初始隐藏（契约 5.4，属性与原 tauri.conf.json 一致）。
+    // transparent 在 macOS 需 macos-private-api feature，默认不可用 → 仅非 macOS 平台启用
+    // （macOS 上 popup 为不透明窗口，功能不受影响）。
+    let mut popup =
+        WebviewWindowBuilder::new(app, POPUP_LABEL, WebviewUrl::App("popup.html".into()))
+            .title("VitryTool 快速粘贴")
+            .visible(false)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .focused(false)
+            .inner_size(440.0, 520.0);
+    #[cfg(not(target_os = "macos"))]
+    {
+        popup = popup.transparent(true);
+    }
+    popup.build()?;
 
     app.manage(QuickPasteState::default());
 
