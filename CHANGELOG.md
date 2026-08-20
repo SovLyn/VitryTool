@@ -2,6 +2,37 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
+## [Unreleased]
+
+> 小改动批次（用户约定：不递增版本号、不打 tag）。
+
+### 优化
+
+- **剪贴板列表加载与 UI 性能**（接口契约不变）：
+  - **复制零全量刷新**：`clipboard-history://updated` 事件捕捉路径载荷携带完整新条目
+    （`listener.ts`）→ 主窗口历史页本地增量应用（新增 `src/features/clipboard-history/incremental.ts`
+    纯函数：按 id 插入/置顶 + 按缓存上限镜像淘汰（收藏豁免）+ 展示序排序，与后端一致），
+    消除大列表（接近 1024 条富文本，clipboard.json 最大 3.2MB 整体序列化 90-300ms）
+    在每次复制时的后端往返与整棵 DOM 重建；全量刷新仅保留在低频路径（初次挂载、
+    收藏切换、删除/清空、事件兜底）。契约 `docs/api/clipboard-history.md` 5.1 补事件载荷说明。
+  - **大列表渲染**：`.entry-card` 启用 `content-visibility: auto` + `contain-intrinsic-size`
+    （视口外卡片跳过渲染/布局，玻璃模糊成本随可见数比例化）+ 缩略图 `loading="lazy"`。
+  - 前端新增 `incremental.test.ts`（8 用例）；vitest / tsc / build 全绿。
+- **启动开屏动画**（防白屏优化批「加载占位」落地，升级为品牌 moment）：
+  - `index.html` 内联零依赖开屏：galaxy logo 材质化浮现（scale + opacity + blur，临界阻尼
+    cubic-bezier(0.22,1,0.36,1)）+「VitryTool」字标（半透明，用户确认）；logo 与 favicon
+    同源 `/src/assets/logo.svg`（后续换 logo 只改一个文件，开屏自动跟随）。
+  - 退场策略（`src/index.tsx`）：App 首次渲染完成与最短展示 500ms 取晚者 → opacity 淡出
+    400ms（reduced-motion 150ms 纯透明度）→ 移除节点；生产启动快不闪一下、dev 冷启动
+    期间持续覆盖防白屏。
+  - 亮/暗：默认亮色、`prefers-color-scheme` 跟随系统、theme.tsx 应用 `data-theme` 后以
+    已保存主题优先；reduced-motion 降级。
+  - 顺手修正 `index.html` 脚手架默认 `<title>` 为「VitryTool」。
+
+### 修复
+
+- 无。
+
 ## [0.2.9] - 2026-08-17
 
 ### 新增

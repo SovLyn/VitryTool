@@ -62,7 +62,7 @@ function PopupItem(props: {
     <li class={props.active ? "qp-item active" : "qp-item"} data-kind={kind}>
       {kind === "image" && !missing && props.entry.image && (
         <span class="qp-item-preview">
-          <img src={convertFileSrc(props.entry.image.path)} alt={t("clipboard.image")} />
+          <img src={convertFileSrc(props.entry.image.path)} alt={t("clipboard.image")} loading="lazy" />
         </span>
       )}
       {kind === "image" && missing && <span class="qp-item-preview">{t("clipboard.missingImage")}</span>}

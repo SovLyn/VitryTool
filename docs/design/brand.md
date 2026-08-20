@@ -46,6 +46,7 @@ node scripts/render-android-icons.mjs
 - **托盘图标**：`src-tauri/src/core/tray.rs`（`app.default_window_icon()`，随构建自动使用新图标）。
 - **应用窗口图标**：打包时由 `tauri.conf.json` `bundle.icon` 引用。
 - **Android 启动图标**：`AndroidManifest.xml` 引用 `@mipmap/ic_launcher`（位图，无 anydpi-v26 自适应图标；如需自适应/圆形蒙版再做）。
+- **favicon 与启动开屏**：`index.html` favicon 与开屏（`#boot-loader`）均直接引用 `src/assets/logo.svg`（galaxy 的 Web 副本）——**换 logo 只改这一个文件**，favicon、开屏自动跟随。
 
 ## 变更记录
 

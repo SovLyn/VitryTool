@@ -15,6 +15,7 @@ import {
   deleteClipboardEntry,
   getClipboardHistory,
   getErrorCode,
+  getMaxEntries,
   setEntryFavorite,
   writeClipboardEntry,
   type ClipboardEntry,
@@ -23,7 +24,8 @@ import { notify, UNKNOWN_NOTIFY_CODE } from "../../api/notify";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { StarIcon } from "../../components/StarIcon";
 import { useI18n } from "../../i18n";
-import { CLIPBOARD_UPDATED_EVENT } from "./listener";
+import { applyCapturedEntry } from "./incremental";
+import { CLIPBOARD_UPDATED_EVENT, type ClipboardUpdatedEvent } from "./listener";
 
 type EntryKind = "text" | "image" | "html" | "rtf" | "files";
 
@@ -68,6 +70,7 @@ function EntryCard(props: {
           <img
             src={convertFileSrc(props.entry.image.path)}
             alt={t("clipboard.image")}
+            loading="lazy"
             onError={() => setImgFailed(true)}
           />
         )}
@@ -116,6 +119,8 @@ function EntryCard(props: {
 export function ClipboardHistory() {
   const { t } = useI18n();
   const [entries, setEntries] = createSignal<ClipboardEntry[]>([]);
+  /** 条数上限缓存（本地增量应用的镜像淘汰需要；随全量刷新同步，见 refresh）。 */
+  const [maxEntries, setMaxEntries] = createSignal(0);
   /** 仅初次加载失败保留内联错误态（契约 notify 5.6）；操作反馈走全局通知。 */
   const [loadError, setLoadError] = createSignal("");
   /** 清空确认对话框（替代 window.confirm，0.2.8）。 */
@@ -127,7 +132,9 @@ export function ClipboardHistory() {
 
   async function refresh() {
     try {
-      setEntries(await getClipboardHistory());
+      const [list, max] = await Promise.all([getClipboardHistory(), getMaxEntries()]);
+      setEntries(list);
+      setMaxEntries(max);
     } catch (err) {
       setLoadError(getErrorCode(err) || String(err));
     }
@@ -138,8 +145,16 @@ export function ClipboardHistory() {
 
     void refresh();
 
-    // 应用级监听捕捉成功后广播 → 刷新列表
-    void listen(CLIPBOARD_UPDATED_EVENT, () => void refresh()).then((fn) => {
+    // 应用级监听捕捉成功后广播 → 增量应用（载荷带完整新条目，见 listener.ts）；
+    // 无条目载荷（收藏切换）或上限未知（初次加载未完成）时退化为全量刷新
+    void listen<ClipboardUpdatedEvent>(CLIPBOARD_UPDATED_EVENT, (e) => {
+      const entry = e.payload.entry;
+      if (entry && maxEntries() > 0) {
+        setEntries(applyCapturedEntry(entries(), entry, maxEntries()));
+      } else {
+        void refresh();
+      }
+    }).then((fn) => {
       unlisten = fn;
     });
 

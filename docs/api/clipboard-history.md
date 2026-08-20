@@ -120,8 +120,15 @@ type GetMaxEntriesResp = number;
   → 应用级监听（src/features/clipboard-history/listener.ts，App 挂载时启动）
   → invoke captureClipboard
   → 后端 service：读格式 → 落盘图片 → 去重置顶 → 即时淘汰 → 写回 store
-  → 前端广播 "clipboard-history://updated"（主窗口历史页 / 快速粘贴小屏据此刷新）
+  → 前端广播 "clipboard-history://updated"（载荷含完整新条目；主窗口历史页本地增量应用，
+    快速粘贴小屏据此刷新）
 ```
+
+**`clipboard-history://updated` 事件载荷**（性能优化批，未升版本）：
+
+- **捕捉路径**：`{ id, entry }`（`entry` 为完整新条目，可能是去重置顶后的既有条目）→ 收件方**本地增量应用**：按 id 插入/置顶 + 按缓存上限镜像淘汰（非收藏超限淘汰最旧、收藏豁免）+ 展示序排序（与后端 `sort_for_display` 一致，见 `src/features/clipboard-history/incremental.ts`），不再全量重新拉取——消除每次复制的后端往返（大列表整体序列化 90-300ms）与整棵 DOM 重建。
+- **收藏切换路径**：`{ id }`（无 `entry`）→ 收件方退化为全量刷新（低频操作）。
+- 全量刷新兜底：初次挂载、清空/删除、收藏切换、事件载荷缺失或上限缓存未知（初次加载未完成）。
 
 监听由**应用级**模块在 `App` 挂载时启动（0.2.1 起），不再绑定在 `ClipboardHistory` 组件生命周期：
 用户切换到设置页或主窗口隐藏（托盘常驻）期间，剪贴板变化仍被捕捉并写入历史。
@@ -187,7 +194,7 @@ type GetMaxEntriesResp = number;
 - **去重置顶**：命中既有条目只刷新 `capturedAt`，收藏状态与 `favoritedAt` 不变。
 - **主动删除 / 清空**：收藏不豁免显式单条删除与清空全部（`clearClipboardHistory` 连收藏一并清除）。
 - **孤儿判定**：收藏条目计入存活条目引用集合——其图片文件在条目存活期间不会被 `cleanupOrphanImages` 判为孤儿。
-- **跨窗同步**：收藏变更由发起窗口 `emit` 既有 `clipboard-history://updated` 事件，两窗经既有刷新路径同步（小屏激活期间保持当前选中条目）。
+- **跨窗同步**：收藏变更由发起窗口 `emit` 既有 `clipboard-history://updated` 事件（载荷仅 `id`），两窗经既有刷新路径（全量）同步（小屏激活期间保持当前选中条目）。
 - **并发**：`setEntryFavorite` 的「读 → 改 → 写」与 `capture_clipboard` 同持 `CAPTURE_LOCK`，互斥串行化，防丢失更新。
 
 ### 5.9 移动端差异（0.2.9，契约 mobile 5.2–5.3）

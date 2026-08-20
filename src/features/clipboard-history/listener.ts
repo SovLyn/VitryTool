@@ -12,10 +12,21 @@
 
 import { emit } from "@tauri-apps/api/event";
 import { onClipboardChange, startListening } from "tauri-plugin-clipboard-x-api";
-import { captureClipboard, cleanupOrphanImages } from "../../api/clipboard-history";
+import { captureClipboard, cleanupOrphanImages, type ClipboardEntry } from "../../api/clipboard-history";
 
-/** 剪贴板历史已更新的全局事件（载荷：新条目 id，可能为去重置顶后的既有 id）。 */
+/** 剪贴板历史已更新的全局事件。 */
 export const CLIPBOARD_UPDATED_EVENT = "clipboard-history://updated";
+
+/**
+ * 事件载荷：
+ * - `entry` 存在（捕捉路径）：完整新条目（可能为去重置顶后的既有条目）→ 收件方**本地增量应用**，
+ *   消除复制时的全量刷新（见 `incremental.ts`）；
+ * - `entry` 缺失（收藏切换路径）：收件方退化为全量刷新（低频操作）。
+ */
+export interface ClipboardUpdatedEvent {
+  id: string;
+  entry?: ClipboardEntry;
+}
 
 /** 定时兜底清理间隔（固定，不暴露设置项，D6）。 */
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
@@ -32,7 +43,7 @@ export function startClipboardCapture(): void {
       onClipboardChange(() => {
         void captureClipboard()
           .then((entry) => {
-            if (entry) void emit(CLIPBOARD_UPDATED_EVENT, { id: entry.id });
+            if (entry) void emit(CLIPBOARD_UPDATED_EVENT, { id: entry.id, entry });
           })
           .catch(() => {
             // 捕捉失败不阻塞监听链路（后端已有日志）

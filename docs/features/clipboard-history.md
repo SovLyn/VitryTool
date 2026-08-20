@@ -27,6 +27,7 @@ src-tauri/src/features/clipboard_history/
 └── tests.rs     # 开发者测试（dt）
 
 src/features/clipboard-history/listener.ts        # 应用级监听（App 挂载启动，捕捉 + 广播 updated 事件）
+src/features/clipboard-history/incremental.ts     # 本地增量应用纯函数（插入/置顶 + 镜像淘汰 + 展示排序）
 src/features/clipboard-history/ClipboardHistory.tsx # 主界面（列表/回写/删除/清空，事件驱动刷新）
 src/features/settings/Settings.tsx                # 设置页（语言/主题/条数）
 src/api/clipboard-history.ts                      # invoke 封装（前端唯一入口）
@@ -46,13 +47,24 @@ src/theme.tsx                                     # 主题系统（亮/暗/跟�
   → 应用级监听（listener.ts，App 挂载时启动，不随页面切换停止）
   → invoke captureClipboard（后端持互斥锁，读各格式 → 落盘 hash.png →
       内容指纹去重置顶 → 超限即时淘汰 → store 写回）
-  → 前端广播 "clipboard-history://updated"
-  → 历史页 / 快速粘贴小屏（激活时）据此刷新列表
+  → 前端广播 "clipboard-history://updated"（捕捉路径载荷含完整新条目）
+  → 主窗口历史页**本地增量应用**（incremental.ts，复制零后端往返）；
+    快速粘贴小屏（激活时）仍全量刷新（条目少、寿命短）
 
 定时兜底（前台发起，5 分钟，应用级）：
   setInterval → invoke cleanupOrphanImages
   → 后端：扫描图片目录 vs 存活条目引用 → 删除孤儿图片
 ```
+
+## 性能（本批优化，未升版本）
+
+- **复制不再触发全量刷新**：捕捉成功后事件载荷携带完整新条目，主窗口本地插入/置顶 +
+  镜像淘汰 + 展示排序（与后端一致），消除大列表（接近 1024 条富文本，clipboard.json
+  最大 3.2MB 整体序列化 90-300ms）在每次复制时的后端往返与整棵 DOM 重建。
+  全量刷新仅保留在低频路径：初次挂载、收藏切换、删除/清空、事件兜底。
+- **大列表渲染**：`.entry-card` 启用 `content-visibility: auto`（Chromium 跳过视口外
+  卡片的渲染/布局，玻璃模糊成本随可见卡片数比例化）+ 缩略图 `loading="lazy"`。
+- 已知剩余：初次全量加载与 `setMaxEntries` 截断仍整体序列化（低频，可接受）。
 
 监听不再绑定在 `ClipboardHistory` 组件生命周期（0.2.1 起）：用户在设置页或
 主窗口隐藏（托盘常驻）期间复制的内容也会被捕捉。主窗口 WebView 隐藏后仍存活，
@@ -70,6 +82,6 @@ src/theme.tsx                                     # 主题系统（亮/暗/跟�
 ## 测试要点
 
 - 后端 dt（`cargo test`）：内容指纹匹配各分支、去重置顶（id 保持/时间刷新/不淘汰）、即时淘汰（最旧优先/图片路径收集/**收藏豁免**）、截断（setMaxEntries 语义）、孤儿差集（含 Windows 分隔符 `/` 与 `\` 表示不一致的回归测试）、MemoryStore 流程组合；0.2.4 新增收藏 dt（展示排序、收藏豁免淘汰、set_favorite 幂等与刷新、旧数据 serde 零迁移）。
-- 前端 vitest：invoke 封装（命令名与参数，含 `set_entry_favorite`）、错误码提取、小屏 `F` 键/星标按钮收藏、App 渲染（空状态/语言切换，宿主能力 mock）。
+- 前端 vitest：invoke 封装（命令名与参数，含 `set_entry_favorite`）、错误码提取、小屏 `F` 键/星标按钮收藏、App 渲染（空状态/语言切换，宿主能力 mock）；本批新增 `incremental.test.ts`（展示序比较器、插入/去重置顶/收藏豁免镜像淘汰、入参不可变）。
 - 需要人工实测（真实剪贴板）：回写是否触发监听、快速连续复制是否丢失中间内容、图片去重置顶的 UI 表现、小屏 `F` 键与星标按钮的实操手感。
 - 图片预览依赖 asset 协议（`security.assetProtocol` 已配置且 scope 覆盖图片目录），加载失败回退占位——实机验证时留意。

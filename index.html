@@ -5,11 +5,107 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
     <link rel="icon" type="image/svg+xml" href="/src/assets/logo.svg" />
-    <title>Tauri + Solid + Typescript App</title>
+    <title>VitryTool</title>
+    <style>
+      /* ==========================================================================
+         开屏（boot-loader）：内联零 JS 依赖，HTML 解析即绘制（防白屏，见 TODO
+         「启动白屏优化批」）。App 首次渲染完成后由 src/index.tsx 退场。
+         - 品牌 moment：galaxy logo 材质化浮现 + 字标（logo 与 favicon 同源
+           /src/assets/logo.svg，后续换 logo 只改这一个文件，开屏自动跟随）
+         - 亮/暗：默认亮色，跟随系统（prefers-color-scheme），theme.tsx 应用
+           data-theme 后以已保存主题优先
+         - reduced-motion：去掉位移/缩放/模糊，纯 opacity 交叉淡化（apple-design §14）
+         ========================================================================== */
+      #boot-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        background: #f5f5f7;
+        color: #1d1d1f;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        #boot-loader {
+          background: #000000;
+          color: #f5f5f7;
+        }
+      }
+
+      /* 用户已保存主题（theme.tsx 模块加载即应用 data-theme）优先于系统 */
+      html[data-theme="dark"] #boot-loader {
+        background: #000000;
+        color: #f5f5f7;
+      }
+
+      #boot-loader img {
+        width: 96px;
+        height: 96px;
+        animation: boot-logo-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+
+      /* 字标：半透明（0.55，reduced-motion 下 animation:none 时以基础值显示） */
+      #boot-loader .boot-wordmark {
+        font: 600 20px/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+          system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+        letter-spacing: -0.02em;
+        opacity: 0.55;
+        animation: boot-wordmark-in 0.4s ease 0.12s both;
+      }
+
+      @keyframes boot-logo-in {
+        from {
+          transform: scale(0.92);
+          opacity: 0;
+          filter: blur(6px);
+        }
+        to {
+          transform: scale(1);
+          opacity: 1;
+          filter: blur(0);
+        }
+      }
+
+      @keyframes boot-wordmark-in {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 0.55;
+          transform: none;
+        }
+      }
+
+      /* 退场：同路径对称淡出；立即放开指针（应用可交互） */
+      #boot-loader.leaving {
+        pointer-events: none;
+        transition: opacity 0.4s ease;
+        opacity: 0;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #boot-loader img,
+        #boot-loader .boot-wordmark {
+          animation: none;
+        }
+        #boot-loader.leaving {
+          transition: opacity 0.15s ease;
+        }
+      }
+    </style>
   </head>
 
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="boot-loader" role="presentation" aria-hidden="true">
+      <img src="/src/assets/logo.svg" alt="" />
+      <span class="boot-wordmark">VitryTool</span>
+    </div>
     <div id="root"></div>
 
     <script src="/src/index.tsx" type="module"></script>

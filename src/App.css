@@ -321,6 +321,9 @@ button:active {
   cursor: pointer;
   box-shadow: var(--shadow-sm);
   transition: transform 90ms ease-out, box-shadow 0.18s ease, background-color 0.15s ease;
+  /* 大列表渲染优化：视口外卡片跳过渲染/布局（Chromium），玻璃模糊成本随可见卡片数比例化 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
 }
 
 /* 抬升：底部贴地投影 + 轻微上移（参考 .raise 的柔和形态） */
