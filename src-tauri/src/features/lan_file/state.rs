@@ -192,6 +192,9 @@ pub fn init(
     let fingerprint = super::transport::crypto::fingerprint_of(&signing.verifying_key());
 
     // 启动 TCP 监听（0.0.0.0:0 动态端口，契约 5.2）
+    // 端口经「绑定后立即回传」的 oneshot 通道获取（run_listener 的返回值只在线程
+    // 退出时才有——之前误用它做初始化回传，导致 init 永远超时、listening=false、
+    // 双方都不公告而互相不可见的严重 bug）。
     let (listen_tx, listen_rx) = std::sync::mpsc::channel();
     let listener_app = app.clone();
     let listen_signing = signing.clone();
@@ -212,8 +215,12 @@ pub fn init(
                     return;
                 }
             };
-            let port = rt.block_on(run_listener(listener_app, listen_signing, self_pid));
-            let _ = listen_tx.send(port);
+            rt.block_on(run_listener(
+                listener_app,
+                listen_signing,
+                self_pid,
+                listen_tx,
+            ));
         })
         .map_err(|e| format!("spawn listener thread failed: {e}"))?;
     // 等待监听端口（最多 3s）
@@ -456,15 +463,19 @@ async fn run_listener(
     app: AppHandle,
     signing: ed25519_dalek::SigningKey,
     self_peer_id: String,
-) -> Option<u16> {
+    port_tx: std::sync::mpsc::Sender<Option<u16>>,
+) {
     let listener = match tokio::net::TcpListener::bind("0.0.0.0:0").await {
         Ok(l) => l,
         Err(e) => {
             log::error!("lan_file: tcp listen failed: {e}");
-            return None;
+            let _ = port_tx.send(None);
+            return;
         }
     };
     let port = listener.local_addr().ok().map(|a| a.port());
+    // 绑定成功立即回传端口（init 据此置 listening=true 并公告）
+    let _ = port_tx.send(port);
     log::info!("lan_file: listening on 0.0.0.0:{port:?}");
     loop {
         if SHUTTING_DOWN.load(Ordering::SeqCst) {
@@ -508,7 +519,6 @@ async fn run_listener(
             }
         });
     }
-    port
 }
 
 /// 分发入站会话：Initial 帧决定路径（交互 / 图片 / 续传重连）。
