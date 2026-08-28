@@ -31,6 +31,8 @@ pub fn run() {
         builder = builder
             .plugin(tauri_plugin_clipboard_x::init())
             .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+            // 文件选择器（lan-file 发送侧，契约 lan-file 5.6 / 6.5；capabilities default.json 已授权）
+            .plugin(tauri_plugin_dialog::init())
             // 窗口状态记忆：主窗口位置/大小/最大化；quick-paste 小屏每次跟随鼠标，不记忆（契约 5.6）
             .plugin(
                 tauri_plugin_window_state::Builder::new()

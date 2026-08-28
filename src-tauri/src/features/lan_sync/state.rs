@@ -115,9 +115,14 @@ pub fn init(
                             crate::features::lan_file::state::forward_announce(&source, &data);
                         }
                     }
-                    NodeEvent::PeerConnected { .. } => {
-                        // 连接建立 → lan_file 公告桥立即补发公告（消灭 5min 发现盲区）
-                        crate::features::lan_file::state::on_peer_connected(&consumer_app);
+                    NodeEvent::PeerConnected { peer_id, addr } => {
+                        // 连接建立 → lan_file 公告桥立即补发公告 + 记录对端 IP
+                        // （消灭 5min 发现盲区；数据面 dial 地址来源，契约 lan-file 5.2）
+                        crate::features::lan_file::state::on_peer_connected(
+                            &consumer_app,
+                            &peer_id,
+                            &addr,
+                        );
                     }
                     NodeEvent::PeerCountChanged(_) => {}
                 }

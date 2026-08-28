@@ -1287,7 +1287,14 @@ button:active {
   min-height: 96px;
   display: grid;
   place-items: center;
+  text-align: center;
   transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+/* 有已选文件时切换为块级列表布局（避免 grid 居中挤压列表，改善行距） */
+.file-dropzone.has-files {
+  display: block;
+  text-align: left;
 }
 
 .file-dropzone.dragover {
@@ -1298,23 +1305,27 @@ button:active {
 .file-dropzone-hint {
   color: var(--text-tertiary);
   font-size: 14px;
+  padding: 8px;
 }
 
 .file-pending-list {
   list-style: none;
   margin: 0;
-  padding: 8px;
+  padding: 10px 12px;
   width: 100%;
-  max-height: 180px;
+  max-height: 200px;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px; /* 行间距（问题修复：突出已选文件行离上下块太近） */
 }
 
 .file-pending-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 5px 8px;
+  gap: 12px;
+  padding: 9px 10px;
   border-radius: 8px;
   font-size: 14px;
 }
@@ -1333,6 +1344,17 @@ button:active {
   font-size: 12px;
   color: var(--text-secondary);
   flex-shrink: 0;
+}
+
+.file-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.file-pick-count {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .file-peers-grid {

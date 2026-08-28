@@ -18,8 +18,9 @@ use libp2p::{
     identity::Keypair,
     mdns,
     swarm::{NetworkBehaviour, SwarmEvent},
+    Multiaddr,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread::JoinHandle;
 
@@ -59,7 +60,9 @@ pub enum NodeEvent {
     /// 启动时公告因「无订阅对端」被丢弃，若只靠 5min 周期重发，
     /// 双方互等对方先发会造成最长 5 分钟的「发现盲区」，契约 lan-file 5.2
     /// 「mDNS 发现新对端后补公告」的落地钩子）。
-    PeerConnected { peer_id: String },
+    /// `addr`：对端在 mdns 上通告的地址（如 `/ip4/192.168.31.203/tcp/12345`），
+    /// lan_file 解析出 IP 后用于 VLF 数据面 dial（公告本身不带 IP）。
+    PeerConnected { peer_id: String, addr: String },
 }
 
 /// 运行中的节点句柄（业务侧持有）。
@@ -196,6 +199,8 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
         .iter()
         .map(|t| gossipsub::TopicHash::from_raw(t.clone()))
         .collect();
+    // mdns 发现的对端地址表（peerId → 通告地址；供 PeerConnected 事件带出，lan_file 数据面 dial 用）
+    let mut mdns_addrs: HashMap<libp2p::PeerId, Multiaddr> = HashMap::new();
     let mut peer_count: usize = 0;
     let mut last_peer_count: Option<usize> = None;
 
@@ -238,6 +243,8 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
                 for (peer_id, addr) in peers {
                     if peer_id != *swarm.local_peer_id() {
                         log::debug!("peer_node: mdns discovered {peer_id} at {addr}");
+                        // 记录通告地址（lan_file 数据面 dial 用 IP）
+                        mdns_addrs.insert(peer_id, addr.clone());
                         let _ = swarm.dial(addr);
                     }
                 }
@@ -245,6 +252,7 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Expired(peers))) => {
                 for (peer_id, _) in peers {
                     log::debug!("peer_node: mdns expired {peer_id}");
+                    mdns_addrs.remove(&peer_id);
                 }
             }
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gossipsub::Event::Message {
@@ -261,8 +269,14 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 peer_count += 1;
                 log::info!("peer_node: connected to {peer_id} (count={peer_count})");
+                let addr = mdns_addrs
+                    .get(&peer_id)
+                    .cloned()
+                    .map(|a| a.to_string())
+                    .unwrap_or_default();
                 let _ = event_tx.send(NodeEvent::PeerConnected {
                     peer_id: peer_id.to_base58(),
+                    addr,
                 });
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {

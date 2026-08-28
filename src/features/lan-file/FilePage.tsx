@@ -4,6 +4,7 @@
 //! 点击终端卡 → 对该终端发起传输（多文件串行）；传输卡实时进度/速率/续传横幅。
 
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -77,16 +78,17 @@ export function FilePage() {
     }
   }
 
-  /** 全局拖放监听（tauri 窗口级 onDragDrop 携带真实绝对路径）。 */
+  /** 全局拖放监听（tauri 窗口级 onDragDropEvent 携带真实绝对路径）。 */
   function setupNativeDrop() {
-    type DropPayload = { paths: string[]; position: { x: number; y: number } };
-    const unlistenDrag = listen<{ type: string; payload: DropPayload }>("tauri://drag-drop", (e) => {
-      if (e.payload?.type === "drop" || (e.payload as unknown as { paths?: string[] })?.paths) {
-        const paths = (e.payload as unknown as { paths?: string[] }).paths;
-        if (paths?.length) addPaths(paths);
+    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === "drop") {
+        const paths = event.payload.paths ?? [];
+        if (paths.length) addPaths(paths);
       }
     });
-    onCleanup(() => void unlistenDrag.then((fn) => fn()));
+    onCleanup(() => {
+      void Promise.resolve(unlisten).then((fn) => fn());
+    });
   }
 
   /** 预填待发路径列表（dialog 选择器 / 原生拖放回调；去重 + 上限 100，契约 5.6）。 */
@@ -145,7 +147,11 @@ export function FilePage() {
 
       {/* 拖放区 / 预填列表 */}
       <div
-        class={dragOver() ? "file-dropzone dragover" : "file-dropzone"}
+        class={[
+          "file-dropzone",
+          pending().length > 0 ? "has-files" : "",
+          dragOver() ? "dragover" : "",
+        ].join(" ")}
         onDragOver={(e) => {
           e.preventDefault();
           setDragOver(true);

@@ -400,10 +400,37 @@ pub fn forward_announce(source: &str, data: &[u8]) {
     }
 }
 
-/// 与新 peer 建立连接（PeerConnected 事件）：立即补发公告 + 2s 延迟再补一次
-/// （第一次可能早于对端 gossipsub 订阅握手完成被丢弃，契约 5.2「发现新对端后补公告」；
-/// 对端收到后也会补发，形成交叉回响，消灭最长 5min 的发现盲区）。
-pub fn on_peer_connected(app: &AppHandle) {
+/// 从 multiaddr（如 `/ip4/192.168.31.203/tcp/12345`）提取 IPv4/IPv6 地址；
+/// 提取失败返回空串（VLF 数据面 dial 将走 `ip:port`）。
+fn ip_from_multiaddr(addr: &str) -> String {
+    for part in addr.split('/') {
+        // multiaddr 片段形如 `ip4` / `192.168.31.203` / `ip6` / `::1`，取紧随协议标签后的值
+        if part == "ip4" || part == "ip6" {
+            return String::new(); // 下一段即地址；下面兜底解析
+        }
+    }
+    // 简单解析：按协议分段
+    let segs: Vec<&str> = addr.split('/').collect();
+    let mut i = 0;
+    while i + 1 < segs.len() {
+        match segs[i] {
+            "ip4" | "ip6" => return segs[i + 1].to_string(),
+            _ => {}
+        }
+        i += 2;
+    }
+    log::warn!("lan_file: cannot extract ip from multiaddr {addr}");
+    String::new()
+}
+
+/// 与新 peer 建立连接（PeerConnected 事件）：学习对端 IP（VLF 数据面 dial 用）+
+/// 立即补发公告 + 2s 延迟再补一次（订阅握手缓冲，契约 5.2「发现新对端后补公告」）。
+pub fn on_peer_connected(app: &AppHandle, peer_id: &str, addr: &str) {
+    let ip = ip_from_multiaddr(addr);
+    if !ip.is_empty() {
+        learn_peer_addr(peer_id, &ip);
+        log::info!("lan_file: learned peer {peer_id} ip={ip}");
+    }
     publish_announce(app);
     let app2 = app.clone();
     std::thread::Builder::new()
@@ -859,9 +886,12 @@ pub async fn send_task(
             return Err("lan-file not initialized".into());
         };
         let g = shared.lock().unwrap();
-        find_announce(&g.announces, &peer_id)
-            .map(|a| format!("{}:{}", a_ip(a), a.tcp_port))
-            .ok_or_else(|| err::PEER_NOT_FOUND.to_string())?
+        // IP 来自 PeerConnected 学习表（mdns multiaddr），端口来自公告
+        let ip = peer_addr(&peer_id).ok_or_else(|| err::PEER_NOT_FOUND.to_string())?;
+        let port = find_announce(&g.announces, &peer_id)
+            .map(|a| a.tcp_port)
+            .ok_or_else(|| err::PEER_NOT_FOUND.to_string())?;
+        format!("{ip}:{port}")
     };
 
     let result = send_task_inner(
@@ -893,16 +923,6 @@ pub async fn send_task(
     }
     let _ = peer_trusted;
     result
-}
-
-/// 公告中的 IP 来源不可从公告负载取（gossipsub 无 IP 字段）——
-/// dial 地址用 mDNS 已建立连接的可达性不可行（VLF 独立 TCP），
-/// 实现为：公告携带本机最近与该 peer 通信所见的 socket 地址不可靠，
-/// v1 直接用「对端公告里没有 IP」的现实 → 采用 mdns 发现时记录的地址表
-/// （peer_node 在 Discovered 时 dial，连接建立后其 socket remote 即对端 LAN IP）。
-/// 简化实现：维护 peerId → 最近已知 IP 表，由入站连接与公告触发点学习。
-fn a_ip(_a: &Announce) -> String {
-    String::new()
 }
 
 #[allow(clippy::too_many_arguments)]
