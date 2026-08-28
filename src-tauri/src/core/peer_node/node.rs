@@ -266,7 +266,9 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
                     data: message.data,
                 });
             }
-            SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+            SwarmEvent::ConnectionEstablished {
+                peer_id, endpoint, ..
+            } => {
                 peer_count += 1;
                 log::info!("peer_node: connected to {peer_id} (count={peer_count})");
                 // 对端地址：优先取连接实际端点（入站/出站都可靠——出站是 dial 地址，
