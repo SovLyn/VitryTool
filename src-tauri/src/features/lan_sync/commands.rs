@@ -151,7 +151,7 @@ pub async fn get_lan_inbox() -> Result<InboxData, ApiError> {
 /// 回写：按原格式写系统剪贴板 → 本机 capture 进历史（防环不重广播，契约 5.5）。
 /// 移动端（契约 mobile 5.3）：写纯文本（5.2 提取）→ 经 hooks 显式入本地历史，**不广播**。
 #[tauri::command]
-pub async fn write_lan_inbox_entry(_app: AppHandle, id: String) -> Result<(), ApiError> {
+pub async fn write_lan_inbox_entry(app: AppHandle, id: String) -> Result<(), ApiError> {
     let shared = shared_or_err()?;
     let entry = {
         let g = shared.lock().unwrap();
@@ -206,7 +206,19 @@ pub async fn write_lan_inbox_entry(_app: AppHandle, id: String) -> Result<(), Ap
                     ApiError::new("lan.peer_node_error", format!("write clipboard: {e}"))
                 })?;
         } else if let Some(meta) = &entry.image_meta {
-            // 首版图片仅元数据：写占位文本（契约 5.5）
+            // 0.3.0 写回语义（契约 lan-file 5.8 / lan-sync 5.5）：
+            // 已点亮（自动图片通道字节已落 `AppData/lan-inbox-images/<hash>.<ext>`）→
+            // 写回**图片字节**（与本地截图写回同路径）；未点亮 → 维持占位文本。
+            let lit_path = crate::features::lan_file::state::lit_image_path(&app, meta);
+            if let Some(path) = lit_path {
+                log::debug!("write_lan_inbox_entry: image lit at {path}, write bytes");
+                tauri_plugin_clipboard_x::write_image(path)
+                    .await
+                    .map_err(|e| {
+                        ApiError::new("lan.peer_node_error", format!("write clipboard: {e}"))
+                    })?;
+                return Ok(());
+            }
             let dims = match (meta.width, meta.height) {
                 (Some(w), Some(h)) => format!(" ({w}x{h})"),
                 _ => String::new(),
@@ -241,7 +253,7 @@ pub async fn write_lan_inbox_entry(_app: AppHandle, id: String) -> Result<(), Ap
             ));
         };
         // 写剪贴板 + 显式入历史（hooks 由 clipboard_history 在 setup 注册）
-        crate::core::hooks::mobile_clipboard_write(&_app, &plain)
+        crate::core::hooks::mobile_clipboard_write(&app, &plain)
             .map_err(|e| ApiError::new("lan.peer_node_error", format!("write clipboard: {e}")))
     }
 }

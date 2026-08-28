@@ -29,6 +29,7 @@
 | `getLanSyncStatus` / `setLanSyncReceive` / `setLanSyncTerminalName` / 收件箱四命令 | 同 | **无差异**（移动端核心链路） |
 | `setLanSyncBroadcast(enabled)` | 开/关广播 | 命令仍注册但**前端无入口**（移动端无广播实现；见 5.4） |
 | quick_paste 全部命令 / `setTrayLabels` / `captureClipboard` / `cleanupOrphanImages` | 同 | **移动端不注册**（不编译，前端无入口；见 5.1 隔离矩阵） |
+| lan-file 交互传输七命令（`sendLanFile` 等，契约 lan-file 2） | 桌面注册 | **全部不注册**（移动端无「文件」页/提议面板/设置区）；移动端仅作为**自动图片通道的接收端**参与（公告 `caps:["img"]` + 动态端口监听 + 免人工确认落图，规则见契约 lan-file 5.9） |
 
 ## 3. 类型定义
 
@@ -78,7 +79,7 @@ pub struct PlatformInfo {
 
 ### 5.2 移动端写剪贴板策略（统一纯文本）
 
-- 优先级：条目有 `text` → 写 text；无 text 有 `html` → **后端剥 HTML 标签**得纯文本后写入；只有 `imageMeta` → 写占位文本 `[图片] 名称 (宽x高)`（与桌面同语义）；**仅含 `filePaths` → 不写**。
+- 优先级：条目有 `text` → 写 text；无 text 有 `html` → **后端剥 HTML 标签**得纯文本后写入；只有 `imageMeta` → 写占位文本 `[图片] 名称 (宽x高)`（与桌面同语义；**0.3.0 注意**：桌面端已点亮的图片条目改为写回图片字节（契约 lan-file 5.8），移动端维持占位文本——`tauri-plugin-clipboard-manager` 不承诺图片写入）；**仅含 `filePaths` → 不写**。
 - 原因：`tauri-plugin-clipboard-manager` 在 Android 只保证写纯文本（HTML 写支持待真机验证，策略不依赖它）；手机端粘贴进任意应用以文本为主。
 - 实现形态：后端新增可测纯函数（剥 HTML / 提取移动端可写文本），`write_clipboard_entry` 与 `write_lan_inbox_entry` 的移动端分支调用；desktop 分支保持原逻辑（不动）。
 

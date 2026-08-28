@@ -22,16 +22,24 @@ pub use commands::*;
 use tauri::Manager;
 
 /// 启动 lan-sync：加载/创建身份 → 启动节点（core/peer_node）→ 初始化业务状态（setup 调用）。
-pub fn init_node(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+/// 返回（签名密钥, peerId）供 lan_file 握手复用（同一身份，契约 lan-file 5.5）。
+pub fn init_node(
+    app: &tauri::App,
+) -> Result<(ed25519_dalek::SigningKey, String), Box<dyn std::error::Error>> {
     let data_dir = app.path().app_data_dir()?;
     let (keypair, created) =
         crate::core::peer_node::identity::load_or_create(&data_dir.join("peer-key.json"));
     let self_peer_id = keypair.public().to_peer_id().to_base58();
+    let signing = crate::features::lan_file::transport::crypto::signing_key_from_libp2p(&keypair)?;
 
     let (event_tx, event_rx) = std::sync::mpsc::channel();
     let node = crate::core::peer_node::PeerNode::spawn(crate::core::peer_node::NodeConfig {
         keypair,
-        topic: service::TOPIC.to_string(),
+        // 0.3.0 多主题：剪贴板（lan-sync）+ 公告（lan-file）
+        topics: vec![
+            service::TOPIC.to_string(),
+            crate::features::lan_file::service::ANNOUNCE_TOPIC.to_string(),
+        ],
         event_tx,
     })?;
 
@@ -39,7 +47,7 @@ pub fn init_node(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .peer_node
         .lock()
         .unwrap() = Some(node);
-    state::init(app.handle(), event_rx, self_peer_id)?;
+    state::init(app.handle(), event_rx, self_peer_id.clone())?;
     let _ = created;
-    Ok(())
+    Ok((signing, self_peer_id))
 }

@@ -16,6 +16,15 @@ import {
   setMaxEntries,
 } from "../../api/clipboard-history";
 import {
+  getLanFileStatus,
+  getLanFileTrustedPeers,
+  LAN_FILE_SETTINGS_UPDATED_EVENT,
+  removeLanFileTrustedPeer,
+  setLanFileEnabled,
+  type LanFileStatus,
+  type TrustedPeer,
+} from "../../api/lan-file";
+import {
   getLanSyncStatus,
   LAN_SETTINGS_UPDATED_EVENT,
   setLanSyncBroadcast,
@@ -142,6 +151,9 @@ export function Settings() {
   const [lanStatus, setLanStatus] = createSignal<LanSyncStatus | null>(null);
   const [terminalInput, setTerminalInput] = createSignal("");
   const [savedTerminal, setSavedTerminal] = createSignal("");
+  /** 局域网文件共享（lan-file，0.3.0）。 */
+  const [fileStatus, setFileStatus] = createSignal<LanFileStatus | null>(null);
+  const [trustedPeers, setTrustedPeers] = createSignal<TrustedPeer[]>([]);
 
   onMount(() => {
     // 平台识别（契约 mobile 5.1）：移动端隐藏广播开关 / 快速粘贴组
@@ -166,15 +178,57 @@ export function Settings() {
       .catch((err) => setLoadError(t(getErrorCode(err) || "clipboard.storage_error")));
 
     refreshLanStatus();
+    void refreshFileStatus();
 
     // 托盘快速开关（0.2.7）：后端切换广播/接收后 emit 设置变化事件，这里实时刷新开关状态
+    // 0.3.0：同时监听 lan-file://settings-updated（托盘「文件共享」⇄ 设置页双向同步）
     const unlisten = listen(LAN_SETTINGS_UPDATED_EVENT, () => {
       void refreshLanStatus();
     });
+    const unlistenFile = listen(LAN_FILE_SETTINGS_UPDATED_EVENT, () => {
+      void refreshFileStatus();
+    });
     onCleanup(() => {
       void unlisten.then((fn) => fn());
+      void unlistenFile.then((fn) => fn());
     });
   });
+
+  /** 拉取 lan-file 状态与信任表。 */
+  async function refreshFileStatus() {
+    try {
+      const [s, peers] = await Promise.all([getLanFileStatus(), getLanFileTrustedPeers()]);
+      setFileStatus(s);
+      setTrustedPeers(peers ?? []);
+    } catch {
+      // lan-file 未初始化（移动端）时静默——设置区不渲染
+    }
+  }
+
+  /** 切换文件共享总开关（乐观更新，失败回滚）。 */
+  async function toggleFileShare(next: boolean) {
+    const prev = fileStatus();
+    if (!prev) return;
+    setFileStatus({ ...prev, enabled: next });
+    try {
+      await setLanFileEnabled(next);
+    } catch (err) {
+      setFileStatus(prev);
+      await notify({ level: "error", code: getErrorCode(err) || "lan_file.storage_error" });
+    }
+  }
+
+  /** 移除信任（契约 5.4：下次该终端提议重新走 TOFU 弹窗）。 */
+  async function removeTrust(peerId: string) {
+    try {
+      await removeLanFileTrustedPeer(peerId);
+      setTrustedPeers((list) => list.filter((p) => p.peerId !== peerId));
+      setFileStatus((s) => (s ? { ...s, trustedCount: Math.max(0, s.trustedCount - 1) } : s));
+      await notify({ level: "success", code: "lanSync.saved" });
+    } catch (err) {
+      await notify({ level: "error", code: getErrorCode(err) || "lan_file.storage_error" });
+    }
+  }
 
   /** 加载快捷键能力检测与已存快捷键（桌面专属，移动端不调用）。 */
   function loadHotkeySettings() {
@@ -394,6 +448,67 @@ export function Settings() {
           )}
         </Show>
       </div>
+
+      {/* 局域网文件共享（0.3.0，桌面专属；移动端无 lan-file 命令面，契约 lan-file 5.9） */}
+      <Show when={isMobile() === false && fileStatus()}>
+        <div class="settings-group">
+          <div class="settings-group-title">{t("lanFile.settingsTitle")}</div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">{t("lanFile.enabled")}</div>
+              <div class="settings-desc">{t("lanFile.enabledDesc")}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={fileStatus()!.enabled}
+              class={fileStatus()!.enabled ? "switch on" : "switch"}
+              onClick={() => void toggleFileShare(!fileStatus()!.enabled)}
+            >
+              <span class="switch-knob" />
+            </button>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">
+                {t("lanFile.statusLine", {
+                  port: fileStatus()!.tcpPort ?? 0,
+                  peers: fileStatus()!.peerCount,
+                  trusted: fileStatus()!.trustedCount,
+                })}
+              </div>
+            </div>
+          </div>
+          {/* 已信任终端管理 */}
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">{t("lanFile.trustedPeers")}</div>
+              <div class="settings-desc">{t("lanFile.trustedEmpty")}</div>
+            </div>
+          </div>
+          <Show when={trustedPeers().length > 0}>
+            <ul class="file-trusted-list">
+              <For each={trustedPeers()}>
+                {(p) => (
+                  <li class="file-trusted-item">
+                    <span class="file-trusted-name">{p.terminalName}</span>
+                    <span class="file-trusted-id" title={p.peerId}>
+                      {p.peerId.slice(0, 10)}…
+                    </span>
+                    <button
+                      type="button"
+                      class="file-trusted-remove"
+                      onClick={() => void removeTrust(p.peerId)}
+                    >
+                      {t("lanFile.removeTrust")}
+                    </button>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+        </div>
+      </Show>
 
       {/* 快速粘贴：桌面专属（移动端无全局快捷键，契约 mobile 5.1），整组含标题隐藏 */}
       <Show when={isMobile() === false}>

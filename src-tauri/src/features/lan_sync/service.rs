@@ -7,8 +7,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// 跨端协议版本（与项目版本同步；兼容约束见契约 5.6）。
-pub const PROTOCOL_VERSION: &str = "0.2.5";
+/// 跨端协议版本（与项目版本同步；兼容约束见契约 5.6；0.3.0 随项目版本升级，
+/// 旧字段不变、新增 `imageMeta.hash`/`xfer`，接收端 serde default 解析）。
+pub const PROTOCOL_VERSION: &str = "0.3.0";
 /// 固定 gossipsub 主题名（契约 5.6）。
 pub const TOPIC: &str = "vitrytool-lan-clipboard";
 /// 每来源节点桶内最多条目数（契约 5.3）。
@@ -75,7 +76,9 @@ pub fn validate_terminal_name(name: &str) -> bool {
 // 跨端信封（契约 5.6）
 // ---------------------------------------------------------------------------
 
-/// 图片元数据（首版仅元数据；字节传输 TODO）。
+/// 图片元数据（0.3.0 增量，契约 lan-sync 5.6 / lan-file 5.7）：
+/// `hash` = 图片字节 SHA-256 hex（自动图片通道关联键）、
+/// `xfer: true` = 声明字节将经 lan-file 通道送达；旧版终端忽略。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageMeta {
@@ -86,6 +89,10 @@ pub struct ImageMeta {
     pub height: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xfer: Option<bool>,
 }
 
 /// 广播信封（gossipsub 载荷，JSON 序列化）。
@@ -344,6 +351,8 @@ pub fn envelope_from_entry_json(
             width: img.get("width").and_then(|v| v.as_u64()).map(|v| v as u32),
             height: img.get("height").and_then(|v| v.as_u64()).map(|v| v as u32),
             size: img.get("size").and_then(|v| v.as_u64()),
+            hash: None, // 发送侧排队 ImageOffer 成功后回填（lan_file::state::queue_image_offers）
+            xfer: None,
         })
     });
 
@@ -585,6 +594,30 @@ mod pure_tests {
         assert_eq!(env.kinds, vec!["text", "html", "image"]);
         assert_eq!(env.image_meta.as_ref().unwrap().name, "a.png");
         assert_eq!(env.ts, 1234);
+    }
+
+    #[test]
+    fn envelope_image_meta_carries_hash_and_xfer() {
+        // 0.3.0 imageMeta 增量（契约 lan-sync 5.6）：hash/xfer 序列化进信封，
+        // 旧字段不变（接收端 serde default 兼容）。
+        let entry = serde_json::json!({
+            "image": { "path": "/x/b.png", "width": 4, "height": 5 }
+        });
+        let mut env = envelope_from_entry_json(&entry, "self", "ME", 1).unwrap();
+        let meta = env.image_meta.as_mut().unwrap();
+        meta.hash = Some("abc123".into());
+        meta.xfer = Some(true);
+        let json = serde_json::to_value(&env).unwrap();
+        assert_eq!(json["imageMeta"]["hash"], "abc123");
+        assert_eq!(json["imageMeta"]["xfer"], true);
+        // 缺省时两字段不序列化（旧版终端只看 name/width/height/size）
+        let env2 = envelope_from_entry_json(&entry, "self", "ME", 1).unwrap();
+        let json2 = serde_json::to_value(&env2).unwrap();
+        assert!(json2["imageMeta"].get("hash").is_none());
+        assert!(json2["imageMeta"].get("xfer").is_none());
+        // 反序列化旧版信封（无 hash/xfer 字段）不失败
+        let old: Envelope = serde_json::from_value(json2).unwrap();
+        assert!(old.image_meta.unwrap().hash.is_none());
     }
 
     #[test]

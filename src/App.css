@@ -1078,3 +1078,500 @@ button:active {
     padding-bottom: calc(22px + env(safe-area-inset-bottom));
   }
 }
+
+/* ==========================================================================
+   lan-file（0.3.0 局域网文件共享）
+   ========================================================================== */
+
+/* ---- 提议面板（顶部下滑玻璃 + 60s 倒计时环，契约 F2） ---- */
+.offer-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: center;
+  padding: 14px 16px 0;
+  pointer-events: none;
+  animation: offer-slide-down 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes offer-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .offer-panel {
+    animation: none;
+  }
+}
+
+.offer-card {
+  pointer-events: auto;
+  width: min(560px, 100%);
+  background: var(--surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 16px 18px;
+}
+
+.offer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.offer-title {
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.offer-countdown {
+  --ring: 100%;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  background: conic-gradient(var(--accent) var(--ring), var(--hairline) 0);
+  position: relative;
+}
+
+.offer-countdown::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--surface-solid);
+}
+
+.offer-countdown {
+  position: relative;
+}
+
+.offer-countdown > * {
+  position: relative;
+}
+
+.offer-peer {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.offer-peer-name {
+  font-weight: 600;
+}
+
+.offer-peer-fp {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.offer-clash-warning {
+  background: rgba(255, 59, 48, 0.1);
+  border: 1px solid rgba(255, 59, 48, 0.35);
+  color: #d70015;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+[data-theme="dark"] .offer-clash-warning {
+  color: #ff453a;
+}
+
+.offer-files {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.offer-file {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 14px;
+}
+
+.offer-file:last-child {
+  border-bottom: none;
+}
+
+.offer-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offer-file-size {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.offer-total {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.offer-fingerprint-toggle {
+  font-size: 13px;
+  color: var(--accent);
+  padding: 2px 0;
+}
+
+.offer-fingerprint {
+  display: block;
+  font-size: 12px;
+  background: var(--hover);
+  border-radius: 8px;
+  padding: 8px 10px;
+  word-break: break-all;
+  margin: 6px 0 10px;
+}
+
+.offer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* nameClash：默认位权移到「拒绝」（契约 5.4） */
+.offer-actions.clash {
+  flex-direction: row-reverse;
+}
+
+.btn-danger {
+  background: #ff3b30;
+  color: #fff;
+}
+
+.btn-danger:active {
+  background: #e0342b;
+}
+
+/* ---- 「文件」页（拖放区 + 终端卡网格 + 传输卡，契约 F1/F3） ---- */
+.file-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 2px;
+}
+
+.file-dropzone {
+  border: 1.5px dashed var(--border);
+  border-radius: 14px;
+  min-height: 96px;
+  display: grid;
+  place-items: center;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.file-dropzone.dragover {
+  border-color: var(--accent);
+  background: rgba(0, 113, 227, 0.06);
+}
+
+.file-dropzone-hint {
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.file-pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  width: 100%;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.file-pending-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.file-pending-item:hover {
+  background: var(--hover);
+}
+
+.file-pending-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-pending-remove {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.file-peers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.file-peer-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  background: var(--surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  padding: 14px 16px;
+  transition: transform 120ms ease-out, box-shadow 0.2s ease;
+}
+
+.file-peer-card:hover:not(:disabled) {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.file-peer-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.file-peer-name {
+  font-weight: 650;
+  font-size: 15px;
+}
+
+.file-peer-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.file-peer-trusted {
+  color: #30d158;
+}
+
+.file-peer-untrusted {
+  color: #ff9f0a;
+}
+
+.file-peer-action {
+  font-size: 13px;
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+/* ---- 传输卡（七态，契约 F4/F5） ---- */
+.transfer-card {
+  background: var(--surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.transfer-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.transfer-direction {
+  font-size: 12px;
+  color: var(--text-secondary);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 1px 8px;
+}
+
+.transfer-peer {
+  font-weight: 650;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transfer-state {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.transfer-state.state-done {
+  color: #30d158;
+}
+
+.transfer-state.state-failed,
+.transfer-state.state-cancelled,
+.transfer-state.state-rejected {
+  color: #ff9f0a;
+}
+
+.transfer-resume-banner {
+  background: rgba(255, 159, 10, 0.12);
+  border: 1px solid rgba(255, 159, 10, 0.4);
+  color: #c93400;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 10px;
+  animation: resume-pulse 1.6s ease-in-out infinite;
+}
+
+[data-theme="dark"] .transfer-resume-banner {
+  color: #ff9f0a;
+}
+
+@keyframes resume-pulse {
+  50% {
+    opacity: 0.72;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transfer-resume-banner {
+    animation: none;
+  }
+}
+
+.transfer-progress-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--hover);
+  overflow: hidden;
+}
+
+.transfer-progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+  transition: width 0.25s linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transfer-progress-fill {
+    transition: none;
+  }
+}
+
+.transfer-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+
+.transfer-files {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.transfer-file {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 4px 0;
+  color: var(--text-secondary);
+}
+
+.transfer-file.status-done {
+  color: var(--text);
+}
+
+.transfer-error {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #ff9f0a;
+}
+
+.transfer-saved {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.transfer-saved-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 设置页：信任管理 + 收件箱图片缩略图 ---- */
+.file-trusted-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.file-trusted-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.file-trusted-name {
+  font-weight: 600;
+  min-width: 80px;
+}
+
+.file-trusted-id {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  flex: 1;
+}
+
+.file-trusted-remove {
+  font-size: 12px;
+  color: #ff3b30;
+}
+
+.inbox-image-thumb {
+  max-height: 64px;
+  max-width: 96px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+  margin-bottom: 4px;
+}

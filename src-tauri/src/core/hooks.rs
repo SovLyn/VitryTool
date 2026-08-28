@@ -127,6 +127,44 @@ pub fn lan_sync_set_receive(app: &AppHandle, enabled: bool) -> Option<Result<boo
     slot.as_ref().map(|s| (s.set_receive)(app, enabled))
 }
 
+// ---------------------------------------------------------------------------
+// lan-file 快速开关钩子（0.3.0，托盘第五项「文件共享」；契约 quick-paste 5.5）
+// ---------------------------------------------------------------------------
+
+/// lan-file 开关存取实现（由 lan_file 注册；托盘菜单经此读写）。
+#[derive(Clone, Copy)]
+pub struct LanFileSwitches {
+    /// 读取当前总开关。
+    pub enabled: fn() -> bool,
+    /// 设置总开关并持久化；返回新的生效值。
+    pub set_enabled: fn(&AppHandle, bool) -> Result<bool, String>,
+}
+
+static LAN_FILE_SWITCHES: OnceLock<Mutex<Option<LanFileSwitches>>> = OnceLock::new();
+
+fn lan_file_slot() -> &'static Mutex<Option<LanFileSwitches>> {
+    LAN_FILE_SWITCHES.get_or_init(|| Mutex::new(None))
+}
+
+/// 注册 lan-file 开关实现（setup 阶段由 lan_file 调用；重复注册覆盖）。
+pub fn register_lan_file_switches(switches: LanFileSwitches) {
+    let mut slot = lan_file_slot().lock().unwrap();
+    *slot = Some(switches);
+    log::debug!("hooks: lan-file switches registered");
+}
+
+/// 读取文件共享开关（未注册时返回 None）。
+pub fn lan_file_enabled() -> Option<bool> {
+    let slot = lan_file_slot().lock().unwrap();
+    slot.as_ref().map(|s| (s.enabled)())
+}
+
+/// 切换文件共享开关并持久化；返回新的生效值（未注册时返回 None）。
+pub fn lan_file_set_enabled(app: &AppHandle, enabled: bool) -> Option<Result<bool, String>> {
+    let slot = lan_file_slot().lock().unwrap();
+    slot.as_ref().map(|s| (s.set_enabled)(app, enabled))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

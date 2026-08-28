@@ -8,7 +8,8 @@
 //! - 节点分组标题粘性 + 半透明磨砂（沿用全局玻璃视觉）。
 
 import { listen } from "@tauri-apps/api/event";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { createSignal, createResource, For, onCleanup, onMount, Show } from "solid-js";
 import { getErrorCode } from "../../api/clipboard-history";
 import {
   clearLanInbox,
@@ -49,6 +50,60 @@ function entryPreview(entry: LanInboxEntry): string {
 /** peerId 短号（前 10 字符，用于分组标题补充标识）。 */
 function shortPeer(peerId: string): string {
   return peerId.length > 10 ? `${peerId.slice(0, 10)}…` : peerId;
+}
+
+// ---------------------------------------------------------------------------
+// 收件箱图片点亮（0.3.0，契约 lan-file 5.7 / lan-sync 5.5）
+// ---------------------------------------------------------------------------
+
+/**
+ * 已点亮图片查询：按 imageMeta.hash 命中后端 lan-inbox-images 目录。
+ * 后端经 assetProtocol 暴露该目录（tauri.conf.json scope）；前端按 hash 探测
+ * 常见扩展名，命中即得缩略图 URL。任何失败静默（占位照常，契约 5.7-4）。
+ */
+const IMAGE_EXTS_FRONT = ["png", "jpg", "jpeg", "gif", "webp", "bmp"] as const;
+
+/** 探测已点亮图片（懒执行 resource；miss 缓存避免重复请求）。 */
+const litProbeCache = new Map<string, string | null>();
+
+function probeLitImage(hash: string): Promise<string | null> {
+  const cached = litProbeCache.get(hash);
+  if (cached !== undefined) return Promise.resolve(cached);
+  return (async () => {
+    for (const ext of IMAGE_EXTS_FRONT) {
+      const url = convertFileSrc(`lan-inbox-images/${hash}.${ext}`);
+      try {
+        const ok = await new Promise<boolean>((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve(true);
+          img.onerror = () => resolve(false);
+          img.src = url;
+          setTimeout(() => resolve(false), 3000);
+        });
+        if (ok) {
+          litProbeCache.set(hash, url);
+          return url;
+        }
+      } catch {
+        // 静默
+      }
+    }
+    litProbeCache.set(hash, null);
+    return null;
+  })();
+}
+
+/** 图片条目缩略图（点亮 → 真实图；未点亮 → 无渲染，占位文本由 entryPreview 负责）。 */
+function LitImage(props: { entry: LanInboxEntry }) {
+  const [lit] = createResource(
+    () => props.entry.imageMeta?.hash,
+    (hash) => (hash ? probeLitImage(hash) : Promise.resolve(null)),
+  );
+  return (
+    <Show when={lit()}>
+      {(url) => <img class="inbox-image-thumb" src={url()} alt="" loading="lazy" />}
+    </Show>
+  );
 }
 
 /**
@@ -200,6 +255,10 @@ export function Inbox(props: InboxProps) {
                       >
                         <span class="entry-kind">{t(`clipboard.kind.${entryKind(entry)}`)}</span>
                         <span class="entry-preview">
+                          {/* 0.3.0 图片点亮：hash 命中 lan-inbox-images → 真实缩略图（契约 lan-file 5.7-4） */}
+                          <Show when={entry.imageMeta}>
+                            <LitImage entry={entry} />
+                          </Show>
                           <span class="text-preview">{entryPreview(entry)}</span>
                         </span>
                         <span class="entry-meta">

@@ -30,6 +30,8 @@ const MENU_QUIT: &str = "quit";
 /// lan-sync 快速开关菜单项 id。
 const MENU_BROADCAST: &str = "lan-broadcast";
 const MENU_RECEIVE: &str = "lan-receive";
+/// lan-file 快速开关菜单项 id（0.3.0「文件共享」，契约 lan-file 5.1 / quick-paste 5.5）。
+const MENU_FILE_SHARE: &str = "lan-file-share";
 
 /// 错误码（契约第 4 节）：托盘菜单文案更新失败。
 const ERR_TRAY_UPDATE_FAILED: &str = "quick_paste.tray_update_failed";
@@ -38,6 +40,7 @@ const ERR_TRAY_UPDATE_FAILED: &str = "quick_paste.tray_update_failed";
 struct TrayItems {
     broadcast: CheckMenuItem<Wry>,
     receive: CheckMenuItem<Wry>,
+    file_share: CheckMenuItem<Wry>,
 }
 
 static TRAY_ITEMS: std::sync::OnceLock<std::sync::Mutex<Option<TrayItems>>> =
@@ -69,15 +72,31 @@ pub fn init(app: &mut App) -> tauri::Result<()> {
         hooks::lan_sync_receive_enabled().unwrap_or(true),
         None::<&str>,
     )?;
+    // 文件共享快速开关（0.3.0；lan-file 未注册时默认勾选「开」——其默认即开）
+    let file_share_item = CheckMenuItem::with_id(
+        app,
+        MENU_FILE_SHARE,
+        "文件共享",
+        true,
+        hooks::lan_file_enabled().unwrap_or(true),
+        None::<&str>,
+    )?;
 
     let menu = Menu::with_items(
         app,
-        &[&show_item, &quit_item, &broadcast_item, &receive_item],
+        &[
+            &show_item,
+            &quit_item,
+            &broadcast_item,
+            &receive_item,
+            &file_share_item,
+        ],
     )?;
 
     tray_items_slot().lock().unwrap().replace(TrayItems {
         broadcast: broadcast_item,
         receive: receive_item,
+        file_share: file_share_item,
     });
 
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
@@ -93,6 +112,7 @@ pub fn init(app: &mut App) -> tauri::Result<()> {
             MENU_SHOW => show_main_window(app),
             MENU_BROADCAST => toggle_broadcast(app),
             MENU_RECEIVE => toggle_receive(app),
+            MENU_FILE_SHARE => toggle_file_share(app),
             MENU_QUIT => {
                 log::info!("tray: quit requested");
                 let _ = app.save_window_state(StateFlags::all());
@@ -127,6 +147,7 @@ pub fn set_tray_labels(
     quit: String,
     broadcast: String,
     receive: String,
+    file_share: Option<String>,
 ) -> Result<(), ApiError> {
     if !labels_are_valid(&show_main, &quit) || !labels_are_valid(&broadcast, &receive) {
         return Err(ApiError::new(
@@ -134,6 +155,17 @@ pub fn set_tray_labels(
             "tray labels must be non-empty",
         ));
     }
+    // fileShare 为 None = 保留「文件共享」现文案（契约 quick-paste 5.5 增量，旧调用不破）
+    let file_share_label = match file_share {
+        Some(ref s) if !s.trim().is_empty() => s.clone(),
+        Some(_) => {
+            return Err(ApiError::new(
+                ERR_TRAY_UPDATE_FAILED,
+                "tray labels must be non-empty",
+            ))
+        }
+        None => "文件共享".to_string(),
+    };
 
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         log::error!("tray: set_tray_labels failed: tray not initialized");
@@ -166,10 +198,25 @@ pub fn set_tray_labels(
         None::<&str>,
     )
     .map_err(tray_update_err)?;
+    let file_share_item = CheckMenuItem::with_id(
+        &app,
+        MENU_FILE_SHARE,
+        file_share_label,
+        true,
+        hooks::lan_file_enabled().unwrap_or(true),
+        None::<&str>,
+    )
+    .map_err(tray_update_err)?;
 
     let menu = Menu::with_items(
         &app,
-        &[&show_item, &quit_item, &broadcast_item, &receive_item],
+        &[
+            &show_item,
+            &quit_item,
+            &broadcast_item,
+            &receive_item,
+            &file_share_item,
+        ],
     )
     .map_err(tray_update_err)?;
     tray.set_menu(Some(menu)).map_err(tray_update_err)?;
@@ -178,6 +225,7 @@ pub fn set_tray_labels(
     tray_items_slot().lock().unwrap().replace(TrayItems {
         broadcast: broadcast_item,
         receive: receive_item,
+        file_share: file_share_item,
     });
     log::debug!("tray: labels updated");
     Ok(())
@@ -242,6 +290,38 @@ fn toggle_receive(app: &AppHandle) {
         None => {
             log::warn!("tray: receive toggle skipped (lan-sync not registered)");
             // 点了开关没生效（lan-sync 未注册）→ warning 通知
+            crate::core::notify::notify_app(
+                app,
+                crate::core::notify::NotifyLevel::Warning,
+                ERR_TRAY_UPDATE_FAILED,
+            );
+        }
+    }
+}
+
+/// 切换「文件共享」开关并同步勾选态（0.3.0，契约 lan-file 5.1）。
+fn toggle_file_share(app: &AppHandle) {
+    let current = hooks::lan_file_enabled().unwrap_or(true);
+    let next = !current;
+    match hooks::lan_file_set_enabled(app, next) {
+        Some(Ok(value)) => {
+            if let Some(items) = tray_items_slot().lock().unwrap().as_ref() {
+                if let Err(e) = items.file_share.set_checked(value) {
+                    log::warn!("tray: sync file-share checked state failed: {e}");
+                }
+            }
+            log::info!("tray: file share toggled -> {value}");
+        }
+        Some(Err(e)) => {
+            log::error!("tray: file share toggle failed: {e}");
+            crate::core::notify::notify_app(
+                app,
+                crate::core::notify::NotifyLevel::Error,
+                ERR_TRAY_UPDATE_FAILED,
+            );
+        }
+        None => {
+            log::warn!("tray: file share toggle skipped (lan-file not registered)");
             crate::core::notify::notify_app(
                 app,
                 crate::core::notify::NotifyLevel::Warning,

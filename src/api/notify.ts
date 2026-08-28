@@ -47,6 +47,24 @@ const BACKEND_CODE_TO_I18N: Record<string, string> = {
   "lan.node_not_running": "lanSync.node_not_running",
   "lan.peer_node_error": "lanSync.peer_node_error",
   "lan.too_large": "lanSync.too_large",
+  // lan-file（0.3.0）：`lan_file.*` → `lanFile.*`（i18n 键域名 camelCase）
+  "lan_file.busy": "lanFile.busy",
+  "lan_file.not_enabled": "lanFile.not_enabled",
+  "lan_file.peer_unsupported": "lanFile.peer_unsupported",
+  "lan_file.peer_not_found": "lanFile.peer_not_found",
+  "lan_file.file_not_found": "lanFile.file_not_found",
+  "lan_file.file_unreadable": "lanFile.file_unreadable",
+  "lan_file.invalid_path": "lanFile.invalid_path",
+  "lan_file.disk_full": "lanFile.disk_full",
+  "lan_file.offer_timeout": "lanFile.offer_timeout",
+  "lan_file.rejected": "lanFile.rejected",
+  "lan_file.integrity_mismatch": "lanFile.integrity_mismatch",
+  "lan_file.transfer_failed": "lanFile.transfer_failed",
+  "lan_file.cancelled": "lanFile.cancelled",
+  "lan_file.storage_error": "lanFile.storage_error",
+  "lan_file.node_not_running": "lanFile.node_not_running",
+  "lan_file.done": "lanFile.done",
+  "lan_file.not_trusted": "lanFile.not_trusted",
 };
 
 /**

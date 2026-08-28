@@ -69,7 +69,10 @@ pub fn run() {
             features::clipboard_history::register_mobile_clipboard_write();
         }
         // 两平台：lan-sync 节点（移动端前台运行，契约 mobile 5.4）
-        features::lan_sync::init_node(app)?;
+        let (signing, self_peer_id) = features::lan_sync::init_node(app)?;
+        // lan-file（0.3.0）：桌面全功能；移动端仅图片通道接收端（契约 lan-file 5.9，
+        // 交互命令不注册由 build_invoke_handler 平台拆分保证，此处统一初始化运行时）
+        features::lan_file::state::init(app.handle(), self_peer_id, signing)?;
         Ok(())
     });
 
@@ -88,6 +91,7 @@ pub fn run() {
                 // 先置位关闭标记，消费者线程据此不误报「节点运行时错误」通知
                 // （正常退出 vs 节点崩溃的区分，见 docs/api/notify.md 5.2）
                 features::lan_sync::state::mark_shutting_down();
+                features::lan_file::state::mark_shutting_down();
                 if let Some(mut node) = app_handle
                     .state::<AppState>()
                     .peer_node
@@ -136,6 +140,16 @@ fn build_invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + S
         features::lan_sync::write_lan_inbox_entry,
         features::lan_sync::delete_lan_inbox_entry,
         features::lan_sync::clear_lan_inbox,
+        // 局域网文件共享（features/lan_file，0.3.0，桌面专属命令面）
+        features::lan_file::get_lan_file_status,
+        features::lan_file::get_lan_file_peers,
+        features::lan_file::send_lan_file,
+        features::lan_file::accept_lan_file,
+        features::lan_file::reject_lan_file,
+        features::lan_file::cancel_lan_file_transfer,
+        features::lan_file::set_lan_file_enabled,
+        features::lan_file::get_lan_file_trusted_peers,
+        features::lan_file::remove_lan_file_trusted_peer,
         // 通知（core/notify，契约 docs/api/notify.md）
         core::notify::notify,
     ]

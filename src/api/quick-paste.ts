@@ -38,14 +38,22 @@ export function getHotkeyCapability(): Promise<HotkeyCapability> {
 }
 
 /**
- * 更新托盘菜单文案（「显示主窗口」「退出」+ lan-sync 快速开关「广播」「接收」），
- * 文案由前端 i18n 提供（契约 `docs/api/quick-paste.md` 5.5；后端不持有界面文案）。
+ * 更新托盘菜单文案（「显示主窗口」「退出」+ lan-sync 快速开关「广播」「接收」
+ * + lan-file 快速开关「文件共享」（0.3.0 可选参数；缺省保留现文案，旧调用不破，
+ * 契约 quick-paste 5.5）），文案由前端 i18n 提供（后端不持有界面文案）。
  */
 export function setTrayLabels(
   showMain: string,
   quit: string,
   broadcast: string,
   receive: string,
+  fileShare?: string,
 ): Promise<void> {
-  return invoke<void>("set_tray_labels", { showMain, quit, broadcast, receive });
+  return invoke<void>("set_tray_labels", {
+    showMain,
+    quit,
+    broadcast,
+    receive,
+    fileShare: fileShare ?? null,
+  });
 }

@@ -2,9 +2,9 @@
 //!
 //! 设计（契约 `docs/api/lan-sync.md` 5.1；可行性调研 `dev/interface-drafts/lan-sync-research.md`）：
 //! - 独立 tokio runtime 后台线程运行 swarm，与应用生命周期同进退（setup 启动、退出时停止）；
-//! - 通用 pubsub 通道：命令 `Publish` 进、事件 `PubsubMessage` 出，**不携带任何业务语义**
-//!   （主题名由调用方配置；业务（信封协议、收件箱）在 `features/lan_sync`）；
-//! - 后续功能（文件传输、多设备会话）复用本层（见决策 F6）。
+//! - 通用 pubsub 通道：命令 `Publish { topic, data }` 进、事件 `PubsubMessage { topic, source, data }` 出，
+//!   **不携带任何业务语义**（0.3.0 起多主题：lan_sync 用剪贴板主题、lan_file 用公告主题，
+//!   业务语义在各自 feature，契约 `docs/api/lan-file.md` 6.1）；
 //!
 //! 实测关键点（已复验）：
 //! - 必须显式 `listen_on`，否则 mDNS 公告无 TXT dnsaddr 记录，对端解析不出地址；
@@ -19,6 +19,7 @@ use libp2p::{
     mdns,
     swarm::{NetworkBehaviour, SwarmEvent},
 };
+use std::collections::HashSet;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread::JoinHandle;
 
@@ -26,17 +27,17 @@ use std::thread::JoinHandle;
 pub struct NodeConfig {
     /// 节点身份（持久化，见 identity.rs）。
     pub keypair: Keypair,
-    /// pubsub 主题名（固定，见契约 5.6：`vitrytool-lan-clipboard`）。
-    pub topic: String,
-    /// 节点事件通道（消费者为 lan-sync 业务线程）。
+    /// 订阅并发布的 gossipsub 主题列表（0.3.0 多主题：剪贴板 + 公告，契约 lan-file 6.1）。
+    pub topics: Vec<String>,
+    /// 节点事件通道（消费者为各 feature 业务线程）。
     pub event_tx: Sender<NodeEvent>,
 }
 
 /// 节点命令（业务线程 → 节点线程）。
 #[derive(Debug)]
 pub enum NodeCommand {
-    /// 向主题发布原始字节（已由业务方序列化）。
-    Publish { data: Vec<u8> },
+    /// 向指定主题发布原始字节（已由业务方序列化；主题未订阅时忽略并记日志）。
+    Publish { topic: String, data: Vec<u8> },
     /// 查询当前已连接 peer 数。
     PeerCount(Sender<usize>),
     /// 停止节点（线程退出）。
@@ -46,8 +47,12 @@ pub enum NodeCommand {
 /// 节点事件（节点线程 → 业务线程）。
 #[derive(Debug)]
 pub enum NodeEvent {
-    /// 收到主题消息（source 为发送方 peerId，data 为原始字节）。
-    PubsubMessage { source: String, data: Vec<u8> },
+    /// 收到主题消息（source 为发送方 peerId，data 为原始字节；业务方按 topic 分发）。
+    PubsubMessage {
+        topic: String,
+        source: String,
+        data: Vec<u8>,
+    },
     /// 已连接 peer 数变化（用于状态展示）。
     PeerCountChanged(usize),
 }
@@ -67,7 +72,7 @@ struct Behaviour {
 impl Behaviour {
     fn new(
         keypair: &Keypair,
-        topic: &str,
+        topics: &[String],
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let peer_id = keypair.public().to_peer_id();
         let gossipsub_config = gossipsub::ConfigBuilder::default()
@@ -77,8 +82,10 @@ impl Behaviour {
             MessageAuthenticity::Signed(keypair.clone()),
             gossipsub_config,
         )?;
-        let topic = gossipsub::IdentTopic::new(topic.to_string());
-        gossipsub.subscribe(&topic)?;
+        for topic in topics {
+            let topic = gossipsub::IdentTopic::new(topic.clone());
+            gossipsub.subscribe(&topic)?;
+        }
         let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
         Ok(Self { gossipsub, mdns })
     }
@@ -89,21 +96,24 @@ impl PeerNode {
     pub fn spawn(config: NodeConfig) -> Result<Self, String> {
         let (command_tx, command_rx) = std::sync::mpsc::channel::<NodeCommand>();
         let local_peer_id = config.keypair.public().to_peer_id();
-        let topic = config.topic.clone();
+        let topics = config.topics.join(", ");
         let handle = std::thread::Builder::new()
             .name("lan-peer-node".into())
             .spawn(move || run_swarm(config, command_rx))
             .map_err(|e| format!("spawn node thread failed: {e}"))?;
-        log::info!("peer_node: spawned, peer_id={local_peer_id} topic={topic}");
+        log::info!("peer_node: spawned, peer_id={local_peer_id} topics=[{topics}]");
         Ok(Self {
             command_tx,
             handle: Some(handle),
         })
     }
 
-    /// 发布一条 pubsub 消息（非阻塞；节点线程处理）。
-    pub fn publish(&self, data: Vec<u8>) {
-        let _ = self.command_tx.send(NodeCommand::Publish { data });
+    /// 向指定主题发布一条 pubsub 消息（非阻塞；节点线程处理）。
+    pub fn publish(&self, topic: &str, data: Vec<u8>) {
+        let _ = self.command_tx.send(NodeCommand::Publish {
+            topic: topic.to_string(),
+            data,
+        });
     }
 
     /// 查询当前已连接 peer 数（带 200ms 超时的同步查询；通道故障返回 0）。
@@ -143,7 +153,7 @@ fn run_swarm(config: NodeConfig, command_rx: Receiver<NodeCommand>) {
 }
 
 async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Result<(), String> {
-    let topic = config.topic.clone();
+    let topics = config.topics.clone();
     let keypair = config.keypair;
     let event_tx = config.event_tx;
     let local_peer_id = keypair.public().to_peer_id();
@@ -157,7 +167,7 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
         )
         .map_err(|e| format!("tcp transport: {e}"))?
         .with_quic()
-        .with_behaviour(|key| Behaviour::new(key, &topic))
+        .with_behaviour(|key| Behaviour::new(key, &topics))
         .map_err(|e| format!("behaviour: {e}"))?
         .build();
 
@@ -177,14 +187,22 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
         .map_err(|e| format!("listen quic: {e}"))?;
 
     log::info!("peer_node: listening, peer_id={local_peer_id}");
-    let topic_hash = gossipsub::TopicHash::from_raw(topic);
+    let subscribed: HashSet<gossipsub::TopicHash> = topics
+        .iter()
+        .map(|t| gossipsub::TopicHash::from_raw(t.clone()))
+        .collect();
     let mut peer_count: usize = 0;
     let mut last_peer_count: Option<usize> = None;
 
     loop {
         // 命令通道：poll 非阻塞，兼顾 swarm 事件
         match command_rx.try_recv() {
-            Ok(NodeCommand::Publish { data }) => {
+            Ok(NodeCommand::Publish { topic, data }) => {
+                let topic_hash = gossipsub::TopicHash::from_raw(topic);
+                if !subscribed.contains(&topic_hash) {
+                    log::warn!("peer_node: publish to unsubscribed topic {topic_hash}, dropped");
+                    continue;
+                }
                 match swarm
                     .behaviour_mut()
                     .gossipsub
@@ -230,6 +248,7 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
                 ..
             })) => {
                 let _ = event_tx.send(NodeEvent::PubsubMessage {
+                    topic: message.topic.as_str().to_string(),
                     source: propagation_source.to_base58(),
                     data: message.data,
                 });
@@ -255,4 +274,42 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 多主题通道字段（契约 lan-file 6.1）：命令/事件均携带 topic，
+    /// 通道结构保持「不携带业务语义」约束（仅字段级验证，swarm 行为由真机验收覆盖）。
+    #[test]
+    fn command_and_event_carry_topic() {
+        let (tx, rx) = std::sync::mpsc::channel::<NodeCommand>();
+        tx.send(NodeCommand::Publish {
+            topic: "vitrytool-lan-file-announce".into(),
+            data: b"{}".to_vec(),
+        })
+        .unwrap();
+        match rx.recv() {
+            Ok(NodeCommand::Publish { topic, data }) => {
+                assert_eq!(topic, "vitrytool-lan-file-announce");
+                assert_eq!(data, b"{}");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<NodeEvent>();
+        tx.send(NodeEvent::PubsubMessage {
+            topic: "vitrytool-lan-clipboard".into(),
+            source: "12D3KooTest".into(),
+            data: vec![1, 2, 3],
+        })
+        .unwrap();
+        match rx.recv() {
+            Ok(NodeEvent::PubsubMessage { topic, .. }) => {
+                assert_eq!(topic, "vitrytool-lan-clipboard");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
 }

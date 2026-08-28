@@ -54,22 +54,25 @@ describe("quick-paste api 封装", () => {
     expect(await getHotkeyCapability()).toEqual({ supported: true });
   });
 
-  it("setTrayLabels 传递托盘菜单文案（显示主窗口 / 退出 / 广播 / 接收）", async () => {
+  it("setTrayLabels 传递托盘菜单文案（显示主窗口 / 退出 / 广播 / 接收 / 文件共享）", async () => {
     mockedInvoke.mockResolvedValue(undefined);
+    // 0.3.0：fileShare 可选参数（缺省 = null → 后端保留现文案，契约 quick-paste 5.5）
     await setTrayLabels("显示主窗口", "退出", "剪贴板广播", "剪贴板接收");
     expect(mockedInvoke).toHaveBeenCalledWith("set_tray_labels", {
       showMain: "显示主窗口",
       quit: "退出",
       broadcast: "剪贴板广播",
       receive: "剪贴板接收",
+      fileShare: null,
     });
 
-    await setTrayLabels("Show Main Window", "Quit", "Clipboard Broadcast", "Clipboard Receive");
+    await setTrayLabels("Show Main Window", "Quit", "Clipboard Broadcast", "Clipboard Receive", "File Sharing");
     expect(mockedInvoke).toHaveBeenCalledWith("set_tray_labels", {
       showMain: "Show Main Window",
       quit: "Quit",
       broadcast: "Clipboard Broadcast",
       receive: "Clipboard Receive",
+      fileShare: "File Sharing",
     });
   });
 });

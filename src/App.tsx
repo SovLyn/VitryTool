@@ -1,31 +1,35 @@
 import "./App.css";
-import { createEffect, createSignal, For, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { LAN_INBOX_UPDATED_EVENT } from "./api/lan-sync";
 import { getPlatformInfo } from "./api/platform";
 import { setTrayLabels } from "./api/quick-paste";
 import { NotificationProvider } from "./components/NotificationProvider";
 import { ClipboardHistory } from "./features/clipboard-history/ClipboardHistory";
 import { startClipboardCapture } from "./features/clipboard-history/listener";
+import { FilePage } from "./features/lan-file/FilePage";
+import { OfferPanel } from "./features/lan-file/OfferPanel";
 import { Inbox } from "./features/lan-sync/Inbox";
 import { Settings } from "./features/settings/Settings";
 import { useI18n } from "./i18n";
 import { listen } from "@tauri-apps/api/event";
 
-type View = "history" | "inbox" | "settings";
+type View = "history" | "files" | "inbox" | "settings";
 
 /** 导航图标（内联 SVG path，移动端底部 tab 显示，桌面隐藏，见 App.css 断点）。 */
 const NAV_ICONS: Record<View, string> = {
   history: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+  files: "M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM13 2v7h7",
   inbox: "M21 3H3a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zM3 10l9 6 9-6",
   settings: "M4 7h9M17 7h3M4 12h3M11 12h9M4 17h9M17 17h3",
 };
 
 /**
  * 主导航项（未来功能在此追加）。
- * 「设置」固定在侧栏底部，不在此列。
+ * 「设置」固定在侧栏底部，不在此列。「文件」页桌面专属（移动端隐藏，契约 lan-file 5.9）。
  */
-const NAV_ITEMS: { view: View; labelKey: string }[] = [
+const NAV_ITEMS: { view: View; labelKey: string; desktopOnly?: boolean }[] = [
   { view: "history", labelKey: "clipboard.title" },
+  { view: "files", labelKey: "lanFile.title", desktopOnly: true },
   { view: "inbox", labelKey: "lanSync.title" },
 ];
 
@@ -47,7 +51,7 @@ function App() {
       .catch(() => setIsMobile(false)); // 失败按桌面 fail-open，不阻塞功能
   });
 
-  // 托盘菜单文案跟随语言（契约 quick-paste 5.5，0.2.6；快速开关文案 0.2.7）：
+  // 托盘菜单文案跟随语言（契约 quick-paste 5.5，0.2.6；快速开关文案 0.2.7/0.3.0）：
   // 主窗口加载后及语言切换时下发本地化文案；失败仅记日志（托盘仍有默认文案兜底）。
   // 移动端无托盘：isMobile !== false（未加载或移动端）时不调用。
   createEffect(() => {
@@ -58,6 +62,7 @@ function App() {
       t("tray.quit"),
       t("tray.broadcast"),
       t("tray.receive"),
+      t("tray.fileShare"),
     ).catch((e) => console.warn("setTrayLabels failed:", e));
   });
 
@@ -80,41 +85,47 @@ function App() {
   const toolbarTitle = () =>
     view() === "history"
       ? t("clipboard.title")
-      : view() === "inbox"
-        ? t("lanSync.title")
-        : t("settings.title");
+      : view() === "files"
+        ? t("lanFile.title")
+        : view() === "inbox"
+          ? t("lanSync.title")
+          : t("settings.title");
 
   return (
     <>
       {/* 全局通知（0.2.8）：仅主窗口挂载；小屏 popup 不渲染（契约 notify 5.6） */}
       <NotificationProvider />
+      {/* lan-file 提议面板（0.3.0，契约 lan-file 5.4）：全局置顶，任何页面弹出 */}
+      <OfferPanel />
       <div class="app-shell">
         <aside class="sidebar">
           <nav class="sidebar-nav">
             <For each={NAV_ITEMS}>
               {(item) => (
-                <button
-                  type="button"
-                  class={view() === item.view ? "nav-item active" : "nav-item"}
-                  onClick={() => setView(item.view)}
-                >
-                  <span class="nav-icon" aria-hidden="true">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d={NAV_ICONS[item.view]} />
-                    </svg>
-                  </span>
-                  <span class="nav-item-label">{t(item.labelKey)}</span>
-                  {item.view === "inbox" && unread() > 0 && (
-                    <span class="nav-badge">{unread()}</span>
-                  )}
-                </button>
+                <Show when={isMobile() === false || !item.desktopOnly}>
+                  <button
+                    type="button"
+                    class={view() === item.view ? "nav-item active" : "nav-item"}
+                    onClick={() => setView(item.view)}
+                  >
+                    <span class="nav-icon" aria-hidden="true">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d={NAV_ICONS[item.view]} />
+                      </svg>
+                    </span>
+                    <span class="nav-item-label">{t(item.labelKey)}</span>
+                    {item.view === "inbox" && unread() > 0 && (
+                      <span class="nav-badge">{unread()}</span>
+                    )}
+                  </button>
+                </Show>
               )}
             </For>
           </nav>
@@ -148,6 +159,8 @@ function App() {
           <div class="content-body">
             {view() === "history" ? (
               <ClipboardHistory />
+            ) : view() === "files" ? (
+              <FilePage />
             ) : view() === "inbox" ? (
               <Inbox onSeen={() => setUnread(0)} />
             ) : (

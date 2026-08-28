@@ -1,6 +1,6 @@
 # 接口契约文档：lan-sync（局域网剪贴板同步）
 
-- 状态：`已实现`（0.2.5）
+- 状态：`已实现`（0.2.5；**0.3.0 增量**——imageMeta 扩展 `hash`/`xfer`、信封 v=0.3.0、点亮图片写回字节、自动图片通道联动，见 5.5 / 5.6 与 [docs/api/lan-file.md](lan-file.md)）
 - 关联功能文档：[docs/features/lan-sync.md](../features/lan-sync.md)
 - 版本影响：`patch`（0.2.4 → 0.2.5；与近期功能实践一致，见 `docs/versioning.md` 注）
 - 调研与设计决策来源：`dev/interface-drafts/lan-sync-research.md`（可行性调研）、`dev/interface-drafts/lan-sync-contract-draft.md`（决策定稿）
@@ -58,7 +58,7 @@ interface LanInboxEntry {
   html?: string;
   rtf?: string;
   filePaths?: string[];    // 文件路径（首版按文本广播，跨机可能无效）
-  imageMeta?: { name: string; width?: number; height?: number; size?: number }; // 图片仅元数据（字节传输 TODO）
+  imageMeta?: { name: string; width?: number; height?: number; size?: number; hash?: string; xfer?: boolean }; // 图片元数据；0.3.0 增 hash（字节 SHA-256 hex，自动图片通道关联键）与 xfer（声明字节将经 lan-file 通道送达），旧版忽略
   fingerprint: string;     // 去重键（与本地历史同款指纹规则）
 }
 
@@ -125,14 +125,14 @@ pub struct LanSyncStatus { peer_id: String, terminal_name: String, broadcast_ena
 
 ### 5.5 回写
 
-- `writeLanInboxEntry(id)`：按 html → rtf → text → files → imageMeta 优先级写系统剪贴板（与 `write_clipboard_entry` 同语义；imageMeta 无字节，写为占位文本 `[图片] 名称 (宽x高)`）。
+- `writeLanInboxEntry(id)`：按 html → rtf → text → files → imageMeta 优先级写系统剪贴板（与 `write_clipboard_entry` 同语义；imageMeta **已点亮**（0.3.0，字节已在 `AppData/lan-inbox-images/<hash>.<ext>`）时写回**图片字节**（clipboard-x 写图，与本地截图写回同路径）；**未点亮** 写为占位文本 `[图片] 名称 (宽x高)`）。
 - 写剪贴板会触发本机 capture 监听 → 内容进入本地历史（去重置顶）；因指纹命中近期接收集合，**不会**再广播回网络。
 
-### 5.6 跨端协议信封（v=0.2.5）
+### 5.6 跨端协议信封（v=0.3.0）
 
 ```json
 {
-  "v": "0.2.5",
+  "v": "0.3.0",
   "ts": 1786713054000,
   "peerId": "12D3Koo...",
   "terminal": "SOVLYN",
@@ -141,12 +141,13 @@ pub struct LanSyncStatus { peer_id: String, terminal_name: String, broadcast_ena
   "html": "<p>…</p>",
   "rtf": "{\\rtf1 …}",
   "filePaths": ["C:\\…"],
-  "imageMeta": { "name": "hash.png", "width": 1920, "height": 1080, "size": 102400 }
+  "imageMeta": { "name": "hash.png", "width": 1920, "height": 1080, "size": 102400, "hash": "e3b0c4…", "xfer": true }
 }
 ```
 
 - 固定主题 `vitrytool-lan-clipboard`；gossipsub 自带消息去重（msg id = 内容哈希）。
 - **兼容约束**：`v` 只增不改；接收端解析已知字段、忽略未知字段；`kinds` 为声明清单，接收端按字段存在与否处理（不依赖 kinds 强校验）。旧版终端（同主题、旧 v）收到新版信封：可解析部分照常展示，未知字段忽略。
+- **0.3.0 增量**：`imageMeta.hash`（图片字节 SHA-256 hex）与 `imageMeta.xfer: true`（声明字节将经 lan-file 自动图片通道送达，见契约 [lan-file.md](lan-file.md) 5.7——关联键即 hash）；桌面端 capture 新图片时，除信封广播外另向在线终端排队 ImageOffer（受 `setLanSyncBroadcast` 与本功能开关管辖）。信封 `v` 随项目版本升为 `0.3.0`。
 
 ### 5.7 开关与设置
 

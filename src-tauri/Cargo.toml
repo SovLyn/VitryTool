@@ -1,6 +1,6 @@
 [package]
 name = "vitrytool"
-version = "0.2.9"
+version = "0.3.0"
 description = "A handy tool for lan information sharing and other staff"
 authors = ["SovLyn"]
 edition = "2021"
@@ -37,8 +37,22 @@ libp2p = { version = "0.56", features = [
     "yamux",
     "quic",
 ] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
 futures = "0.3"
+
+# 局域网文件共享（lan-file，0.3.0，契约 docs/api/lan-file.md §6.5）
+# 数据面独立裸 TCP + VLF/1 协议（X25519 → HKDF → ChaCha20-Poly1305 分帧 AEAD，
+# ed25519 身份签名复用 peer-key）；tokio 增 net/io-util feature 见上。
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+# peerId multihash base58 编码 / 指纹 base64（lan-file，0.3.0）
+base64 = "0.22"
+# 磁盘剩余空间检查（lan-file 落盘预检，契约 5.5）
+fs4 = "0.8"
 
 # ---- 平台差异依赖（0.2.9 移动端，契约 docs/api/mobile.md 6） ----
 # 桌面：剪贴板监听 + 全局快捷键 + 窗口状态 + 单实例（均为桌面专属插件）；
@@ -51,6 +65,8 @@ tauri-plugin-store = "2.4.4"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-single-instance = "2"
+# lan-file 文件选择器（桌面专属，契约 lan-file 6.5）
+tauri-plugin-dialog = "2"
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }

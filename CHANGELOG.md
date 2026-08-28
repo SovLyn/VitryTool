@@ -6,6 +6,10 @@
 
 > 小改动批次（用户约定：不递增版本号、不打 tag）。
 
+### 新增（规划）
+
+- **局域网文件共享（lan-file，目标 0.3.0）**：接口契约 [`docs/api/lan-file.md`](docs/api/lan-file.md) 与功能文档 [`docs/features/lan-file.md`](docs/features/lan-file.md) 定稿（/grill 后端 Q1–Q12 + 前端 F1–F7，含复审修订）；既有契约同步增量：lan-sync（imageMeta `hash`/`xfer`、信封 v=0.3.0、点亮图片写回字节）、quick-paste 5.5（setTrayLabels `fileShare` 可选参数 + 托盘第五项）、mobile（lan-file 差异行与写回注记）；README 已知限制补条。实现未开始，版本号暂不递增。
+
 ### 优化
 
 - **剪贴板列表加载与 UI 性能**（接口契约不变）：

@@ -101,8 +101,21 @@ pub fn init(
         .name("lan-sync-consumer".into())
         .spawn(move || {
             while let Ok(event) = event_rx.recv() {
-                if let NodeEvent::PubsubMessage { source, data } = event {
-                    handle_message(&consumer_app, &source, &data);
+                match event {
+                    NodeEvent::PubsubMessage {
+                        topic,
+                        source,
+                        data,
+                    } => {
+                        // 0.3.0 多主题分发（契约 lan-file 6.1）：剪贴板主题自处理，
+                        // 其他主题（公告）转发给 lan_file 桥
+                        if topic == super::service::TOPIC {
+                            handle_message(&consumer_app, &source, &data);
+                        } else {
+                            crate::features::lan_file::state::forward_announce(&source, &data);
+                        }
+                    }
+                    NodeEvent::PeerCountChanged(_) => {}
                 }
             }
             // 节点事件通道断开（节点线程退出）：正常运行中即节点异常（收不到/发不出）。
@@ -327,6 +340,12 @@ fn broadcast_captured_entry(app: &AppHandle, entry: &serde_json::Value) {
     let node = state.peer_node.lock().unwrap();
     if let Some(node) = node.as_ref() {
         log::info!("lan_sync: broadcast {}B ({:?})", bytes.len(), env.kinds);
-        node.publish(bytes);
+        node.publish(super::service::TOPIC, bytes);
+    }
+
+    // 0.3.0 自动图片通道（契约 lan-file 5.7）：新图片条目 → ImageOffer 排队
+    // （发送侧门槛 10MiB + 白名单在 lan_file 侧判断；开关矩阵亦在彼处校验）
+    if env.image_meta.is_some() {
+        crate::features::lan_file::state::queue_image_offers(app, entry);
     }
 }

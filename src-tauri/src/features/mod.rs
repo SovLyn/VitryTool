@@ -22,3 +22,8 @@ pub mod quick_paste;
 
 /// 局域网剪贴板同步（0.2.5；节点层见 core/peer_node）。
 pub mod lan_sync;
+
+/// 局域网文件共享（0.3.0；契约 `docs/api/lan-file.md`）。
+/// 交互传输与提议面板为桌面专属；自动图片通道两平台皆参与（接收端）。
+#[cfg(desktop)]
+pub mod lan_file;

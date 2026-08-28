@@ -5,12 +5,16 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-/** 图片元数据（首版仅元数据；字节传输 TODO）。 */
+/** 图片元数据（0.3.0 增 hash/xfer，契约 lan-sync 5.6 / lan-file 5.7）。 */
 export interface LanImageMeta {
   name: string;
   width?: number;
   height?: number;
   size?: number;
+  /** 图片字节 SHA-256 hex（自动图片通道关联键）。 */
+  hash?: string;
+  /** 声明字节将经 lan-file 通道送达。 */
+  xfer?: boolean;
 }
 
 /** `getLanSyncStatus` 响应。 */

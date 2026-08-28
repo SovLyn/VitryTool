@@ -72,7 +72,7 @@ describe("App", () => {
     expect(getByText(/暂无剪贴记录/)).toBeTruthy();
   });
 
-  it("挂载时以默认语言下发托盘菜单文案（契约 quick-paste 5.5）", async () => {
+  it("挂载时以默认语言下发托盘菜单文案（契约 quick-paste 5.5；0.3.0 增 fileShare）", async () => {
     renderApp();
     // 平台识别（异步）完成后 isMobile=false → createEffect 下发托盘文案
     await Promise.resolve();
@@ -82,6 +82,7 @@ describe("App", () => {
       "退出",
       "剪贴板广播",
       "剪贴板接收",
+      "文件共享",
     );
   });
 });

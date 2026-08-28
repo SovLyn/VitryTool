@@ -23,7 +23,7 @@
 | `quickPasteReady` | 前端 → 后端 | popup 前端加载完成握手：若已有挂起的按下事件则补发 `show` |
 | `quickPasteClose` | 前端 → 后端 | popup 前端完成回写（或取消）后请求关闭：隐藏窗口、复位状态 |
 | `getHotkeyCapability` | 前端 → 后端 | 检测当前环境是否支持全局快捷键（如 Linux Wayland 会话不支持）；`supported=false` 时设置页隐藏录制入口并显示警告（见 5.8） |
-| `setTrayLabels` | 前端 → 后端 | 更新托盘菜单文案（「显示主窗口」「退出」+ lan-sync 快速开关「剪贴板广播」「剪贴板接收」），文案由前端 i18n 提供（见 5.5） |
+| `setTrayLabels` | 前端 → 后端 | 更新托盘菜单文案（「显示主窗口」「退出」+ lan-sync 快速开关「剪贴板广播」「剪贴板接收」+ lan-file 快速开关「文件共享」（0.3.0 可选参数，见 5.5）），文案由前端 i18n 提供（见 5.5） |
 
 事件（后端 → popup 前端）：
 
@@ -131,10 +131,11 @@ type HotkeyCapabilityResp = { supported: boolean };
 ### 5.5 托盘与关闭行为
 
 - 主窗口 `CloseRequested`：`prevent_close()` + `hide()`（进程常驻，剪贴板监听与定时清理继续——WebView 隐藏后仍存活，ADR 0001 前提不变）。
-- 托盘图标：左键单击 / 双击唤出主窗口（`show` + `set_focus` + `unminimize`）；菜单四项——「显示主窗口」「退出」「剪贴板广播」「剪贴板接收」。
+- 托盘图标：左键单击 / 双击唤出主窗口（`show` + `set_focus` + `unminimize`）；菜单五项——「显示主窗口」「退出」「剪贴板广播」「剪贴板接收」「文件共享」（最后一项 0.3.0，见 5.5 末段）。
 - 「退出」：`app.exit(0)`；window-state 插件在窗口关闭流程中保存主窗口位置 / 大小。
 - **托盘菜单文案 i18n（0.2.6；快速开关文案 0.2.7）**：菜单文案由**前端 i18n 提供**（后端不持有界面文案，符合「后端不输出界面文案」铁律）——主窗口加载后及语言切换时调用 `setTrayLabels`，后端更新菜单项文本；错误码 `quick_paste.tray_update_failed`。托盘初始化时仍以默认文案创建，主窗口首次下发后生效。
 - **lan-sync 快速开关（0.2.7）**：托盘菜单「剪贴板广播」「剪贴板接收」为**可勾选项**（CheckMenuItem），勾选态反映当前开关；点击即切换并持久化（与设置页 `setLanSyncBroadcast` / `setLanSyncReceive` 同一路径，经 `core::hooks` 的开关钩子读写，见契约 lan-sync 5.7）。未注册（lan-sync 未初始化）时点击仅记日志。切换后后端 emit `lan-sync://settings-updated`，设置页监听并实时刷新开关状态（无需重进页面）。
+- **lan-file 快速开关（0.3.0，契约 lan-file 5.1）**：`setTrayLabels` 新增**可选**参数 `fileShare`（**缺省 = 保留「文件共享」菜单项现文案**，旧调用不破）；托盘菜单增加第五项 CheckMenuItem「文件共享」，点击切换经 `core::hooks` 注册的 lan-file 开关钩子（与 `setLanFileEnabled` 同一共享态与持久化路径），切换后 emit `lan-file://settings-updated`；未注册（lan-file 未初始化）时点击仅记日志。
 
 ### 5.6 窗口状态记忆
 

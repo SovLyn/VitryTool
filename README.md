@@ -18,7 +18,8 @@ VitryTool 的目标是提供轻量、本地的局域网信息共享能力，不�
   - 局域网剪贴板同步（lan-sync）——本机复制自动广播，其他终端的收件箱按来源节点分桶展示（每端最新 8 条），点击写回；libp2p（mDNS 发现 + gossipsub 广播），纯局域网，见 [`docs/features/lan-sync.md`](docs/features/lan-sync.md) 与接口契约 [`docs/api/lan-sync.md`](docs/api/lan-sync.md)。
   - 全局通知（notify）——右上角玻璃 toast：操作结果（回写/保存等）与后端内部错误（快捷键注册失败、托盘开关失败、lan-sync 节点异常等）统一经 `app://notify` 通道展示，见 [`docs/features/notify.md`](docs/features/notify.md) 与接口契约 [`docs/api/notify.md`](docs/api/notify.md)。
   - **移动端（Android，0.2.9）**——手机作为「接收 + 转发终端」：前台运行节点接收局域网广播 → 收件箱 → 点条目写剪贴板（手动粘贴）；不监听、不广播、无后台保活（首版），见 [`docs/features/mobile.md`](docs/features/mobile.md) 与接口契约 [`docs/api/mobile.md`](docs/api/mobile.md)。
-- **规划中**：文件/图片字节传输、接收器模式、黑名单等，见 [`docs/features/lan-sync.md`](docs/features/lan-sync.md) 待办与 TODO.md。
+  - **局域网文件共享（lan-file，0.3.0，开发中）**——桌面终端间点对点推送任意文件：选文件 → 点终端 → 对端确认（首次 TOFU）→ 独立加密 TCP 流式传输（断线自动续传、取消即永久终止、全文件哈希对账、原子落盘）；并打通**自动图片通道**——信任终端复制截图，收件箱条目自动点亮为真实图片。发现/信令复用 lan-sync 节点（gossipsub 公告），见 [`docs/features/lan-file.md`](docs/features/lan-file.md) 与接口契约 [`docs/api/lan-file.md`](docs/api/lan-file.md)。
+- **规划中**：接收器模式、黑名单、目录树共享、移动端双向文件传输等，见 [`docs/features/lan-file.md`](docs/features/lan-file.md)、[`docs/features/lan-sync.md`](docs/features/lan-sync.md) 待办与 TODO.md。
 - 功能进度与版本变化记录在 `CHANGELOG.md`。
 
 ## 技术栈
@@ -81,8 +82,12 @@ pnpm tauri build      # 桌面端打包
 - **移动端（Android，0.2.9）已知限制**（详见 [`docs/features/mobile.md`](docs/features/mobile.md)）：
   - **无后台保活**：应用退到后台节点可能被系统回收 → 收不到广播；前台自动恢复。
   - **无剪贴板监听**：手机本地复制不会进历史/广播；历史页只有「从收件箱写剪贴板」的记录。
-  - **仅文本写入**：图片/文件字节无法写入手机剪贴板（图片仅元数据占位文本、文件路径条目禁用写回）。
+  - **仅文本写入**：图片/文件字节无法写入手机剪贴板（图片仅元数据占位文本、文件路径条目禁用写回；0.3.0 起手机可**接收**信任终端自动送达的图片字节到收件箱，但写剪贴板仍是文本占位）。
   - **mDNS 依赖 WiFi**：纯蜂窝网络下无组播，无法发现终端。
+- **局域网文件共享（lan-file，0.3.0）已知限制**（详见 [`docs/features/lan-file.md`](docs/features/lan-file.md)）：
+  - **Windows 防火墙可能拦截首次入站 TCP**：新程序默认被拦 → 首次使用需允许 VitryTool 通过防火墙（否则表现为「对方发不过来」，本机外发不受影响）。
+  - **发现依赖 lan-sync 的 mDNS**：Windows 虚拟网卡组播出口坑沿用（同上 lan-sync 条）。
+  - 单会话（同时仅一个传输任务，忙时新提议自动拒绝）；断点续传仅对异常中断开放（取消=永久终止）；无跨重启传输历史；不支持目录/文件夹；移动端仅接收图片通道产物且需前台。
 
 ## 版本管理
 
