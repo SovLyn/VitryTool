@@ -266,17 +266,30 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
                     data: message.data,
                 });
             }
-            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+            SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                 peer_count += 1;
                 log::info!("peer_node: connected to {peer_id} (count={peer_count})");
-                let addr = mdns_addrs
-                    .get(&peer_id)
-                    .cloned()
-                    .map(|a| a.to_string())
-                    .unwrap_or_default();
+                // 对端地址：优先取连接实际端点（入站/出站都可靠——出站是 dial 地址，
+                // 入站是 send_back_addr；mdns_addrs 仅作兜底，入站连接时本机可能
+                // 尚未完成自己的 mDNS 查询而表内无记录）。
+                let addr = match &endpoint {
+                    libp2p::core::ConnectedPoint::Dialer { address, .. } => address.clone(),
+                    libp2p::core::ConnectedPoint::Listener { send_back_addr, .. } => {
+                        send_back_addr.clone()
+                    }
+                };
+                let addr_str = if addr.as_ref().len() > 0 {
+                    addr.to_string()
+                } else {
+                    mdns_addrs
+                        .get(&peer_id)
+                        .cloned()
+                        .map(|a| a.to_string())
+                        .unwrap_or_default()
+                };
                 let _ = event_tx.send(NodeEvent::PeerConnected {
                     peer_id: peer_id.to_base58(),
-                    addr,
+                    addr: addr_str,
                 });
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
