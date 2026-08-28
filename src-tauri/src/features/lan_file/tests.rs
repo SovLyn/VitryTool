@@ -411,5 +411,28 @@ async fn backoff_retry_within_window() {
     assert!(Duration::from_secs(total) < super::service::RESUME_WINDOW);
 }
 
+// ---------------------------------------------------------------------------
+// multiaddr → IP 解析（数据面 dial 地址来源；曾因提前 return 空串导致整条链路失效）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn multiaddr_ip_extraction() {
+    // 标准 libp2p multiaddr：tcp / udp-quic 两种形态（本机实测 mdns discovered 输出）
+    assert_eq!(
+        super::state::ip_from_multiaddr("/ip4/192.168.31.203/tcp/38583/p2p/12D3KooW"),
+        "192.168.31.203"
+    );
+    assert_eq!(
+        super::state::ip_from_multiaddr("/ip4/192.168.31.203/udp/52981/quic-v1/p2p/12D3KooW"),
+        "192.168.31.203"
+    );
+    // 无协议前缀 / 空 / 非 ip4/ip6 → 空串
+    assert_eq!(super::state::ip_from_multiaddr(""), "");
+    assert_eq!(super::state::ip_from_multiaddr("/tcp/12345"), "");
+    assert_eq!(super::state::ip_from_multiaddr("12D3KooW"), "");
+    // ip6
+    assert_eq!(super::state::ip_from_multiaddr("/ip6/::1/tcp/12345"), "::1");
+}
+
 use super::store::hex_encode;
 use sha2::{Digest as _, Sha256};

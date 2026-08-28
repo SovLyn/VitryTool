@@ -400,26 +400,16 @@ pub fn forward_announce(source: &str, data: &[u8]) {
     }
 }
 
-/// 从 multiaddr（如 `/ip4/192.168.31.203/tcp/12345`）提取 IPv4/IPv6 地址；
+/// 从 multiaddr（如 `/ip4/192.168.31.203/tcp/12345` 或
+/// `/ip4/192.168.31.203/udp/52981/quic-v1/...`）提取 IPv4/IPv6 地址；
 /// 提取失败返回空串（VLF 数据面 dial 将走 `ip:port`）。
-fn ip_from_multiaddr(addr: &str) -> String {
-    for part in addr.split('/') {
-        // multiaddr 片段形如 `ip4` / `192.168.31.203` / `ip6` / `::1`，取紧随协议标签后的值
-        if part == "ip4" || part == "ip6" {
-            return String::new(); // 下一段即地址；下面兜底解析
-        }
-    }
-    // 简单解析：按协议分段
+pub fn ip_from_multiaddr(addr: &str) -> String {
     let segs: Vec<&str> = addr.split('/').collect();
-    let mut i = 0;
-    while i + 1 < segs.len() {
-        match segs[i] {
-            "ip4" | "ip6" => return segs[i + 1].to_string(),
-            _ => {}
+    for (i, seg) in segs.iter().enumerate() {
+        if (*seg == "ip4" || *seg == "ip6") && i + 1 < segs.len() {
+            return segs[i + 1].to_string();
         }
-        i += 2;
     }
-    log::warn!("lan_file: cannot extract ip from multiaddr {addr}");
     String::new()
 }
 
