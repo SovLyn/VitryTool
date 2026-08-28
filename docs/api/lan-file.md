@@ -1,7 +1,7 @@
 # 接口契约文档：lan-file（局域网文件共享）
 
-- 状态：`草案`（**契约终审通过 2026-08-20，可进实现**；实现完成后转 `已实现`）
-- 关联功能文档：[docs/features/lan-file.md](../features/lan-file.md)（实现时创建）
+- 状态：`已实现`（0.3.0，2026-08-28；协议层真机验证通过——双机 VLF 握手互通、伪造身份拒绝、peerId 绑定独立复核；UI 完整互通待用户人工实测）
+- 关联功能文档：[docs/features/lan-file.md](../features/lan-file.md)
 - 版本影响：`minor`（0.2.9 → 0.3.0，新功能）
 - 调研来源：`C:\Users\SovLy\Documents\rust\lan_file_test\五模型局域网文件传输预研评测报告.md`（五方案横评，推荐蓝本 §7.3）
 - 商讨记录：后端 Q1–Q12 + 前端 F1–F7（/grill 会话，2026-08-20；复审修订 A–D 同日确认）
@@ -114,6 +114,11 @@ pub struct LanFileStatus {
 }
 // …（其余类型同构，实现见 src-tauri/src/features/lan_file/service.rs）
 ```
+
+> **实现注记（0.3.0 已实现，2026-08-28）**：`transfer-updated` 空闲快照以「省略
+> `transferId` 字段」表达 null 语义（`#[serde(skip_serializing_if)]`）；`LanFilePeer`
+> / `LanFileOffer` 增加 `fingerprint` 之外的 `terminalName` 快照与
+> `knownFromMinutes`（公告 age 取整分钟）；错误码 15 个与 §4 完全一致。
 
 ## 4. 错误码
 

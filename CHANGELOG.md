@@ -2,6 +2,41 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本约定（见 `docs/versioning.md`）。
 
+## [0.3.0] - 2026-08-28
+
+### 新增
+
+- **局域网文件共享（lan-file，0.3.0）**：局域网内桌面终端之间点对点推送任意文件——
+  仅确认后传输（TOFU 首确 + 60s 提议窗口 + 撞名红色警告卡）、多文件串行、
+  断线 120s 宽限自动续传（用户显式取消 = 永久终止，sidecar 取消墓碑）、
+  VLF/1 独立裸 TCP 数据面（X25519 → HKDF-SHA256 双向密钥 → ChaCha20-Poly1305
+  分帧 AEAD，ed25519 握手签名与 `multihash(公钥)==peerId` 一致性校验，
+  帧长先校验再分配上限 1MiB，落盘前磁盘预检 +200MB 余量 + 全文件 SHA-256 对账 +
+  `.tmp` 原子 rename + 文件名净化防目录穿越）。
+  - 后端：`features/lan_file`（7 命令 / 4 事件 / 状态机 / TOFU 信任表 / sidecar /
+    公告 peers TTL 驱逐 / 图片通道）；`transport/{crypto,proto,session}`；dt 48 项
+    （含 tokio 回环端到端、AAD 篡改拒绝、身份假冒拒绝、取消墓碑、续传偏移）。
+  - **自动图片通道**（与 lan-sync 联动，契约 5.7）：已信任终端复制截图 → ≤10MiB
+    免确认落 `AppData/lan-inbox-images/`（LRU 200 张 / 500MB）→ 收件箱按
+    `imageMeta.hash` 点亮真实图片，写回图片字节；任何失败静默降级占位。
+  - core/peer_node 多主题化（`Publish { topic }` / `PubsubMessage { topic }`，
+    lan-sync 行为不变）；gossipsub 公告主题 `vitrytool-lan-file-announce`
+    （caps: file/img，公告自校验 `multihash(公钥)==peerId`，12min TTL 驱逐）。
+  - 前端：「文件」导航页（拖放区 + 选择文件 + 终端卡网格 + 传输卡七态渲染 +
+    resuming 琥珀横幅）、提议面板（顶部下滑玻璃 + 60s 倒计时环 + TOFU 指纹展开 +
+    nameClash 红色警告卡位权反转）、设置页 lan-file 区（总开关 + 状态行 +
+    已信任终端管理）、托盘「文件共享」快速开关（`setTrayLabels` 增可选 `fileShare`）；
+    i18n 双语（`lanFile.*` 40+ 键）；vitest 新增 lan-file api / 组件用例。
+  - 移动端（契约 5.9）：仅自动图片接收端，7 命令均不注册（`build_invoke_handler`
+    平台拆分保证）。
+- 已知限制（README 同步）：Windows 防火墙可能拦截首次入站 TCP（首启需放行）；
+  Windows 虚拟网卡 mDNS 多网卡坑沿用 lan-sync；单会话无传输历史持久化。
+
+### 变更
+
+- lan-sync 信封 `v` → `"0.3.0"`，`imageMeta` 增可选 `hash` / `xfer` 字段
+  （旧版忽略，向后兼容）；已点亮图片条目写回 = 图片字节（未点亮维持占位文本）。
+
 ## [Unreleased]
 
 > 小改动批次（用户约定：不递增版本号、不打 tag）。

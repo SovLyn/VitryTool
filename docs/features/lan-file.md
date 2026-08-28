@@ -1,6 +1,6 @@
 # 局域网文件共享（lan-file）
 
-- 状态：开发中（契约终审通过 2026-08-20，实现进行中）
+- 状态：已实现（0.3.0，2026-08-28；协议层真机验证通过，UI 完整互通待用户人工实测）
 - 接口契约：[docs/api/lan-file.md](../api/lan-file.md)
 - 后端 mod：`src-tauri/src/features/lan_file/`
 - 前端目录：`src/features/lan-file/`
