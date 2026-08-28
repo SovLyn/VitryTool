@@ -55,6 +55,11 @@ pub enum NodeEvent {
     },
     /// 已连接 peer 数变化（用于状态展示）。
     PeerCountChanged(usize),
+    /// 与新 peer 建立连接（0.3.0：lan_file 公告桥据此立即补发公告——
+    /// 启动时公告因「无订阅对端」被丢弃，若只靠 5min 周期重发，
+    /// 双方互等对方先发会造成最长 5 分钟的「发现盲区」，契约 lan-file 5.2
+    /// 「mDNS 发现新对端后补公告」的落地钩子）。
+    PeerConnected { peer_id: String },
 }
 
 /// 运行中的节点句柄（业务侧持有）。
@@ -256,6 +261,9 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 peer_count += 1;
                 log::info!("peer_node: connected to {peer_id} (count={peer_count})");
+                let _ = event_tx.send(NodeEvent::PeerConnected {
+                    peer_id: peer_id.to_base58(),
+                });
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
                 peer_count = peer_count.saturating_sub(1);

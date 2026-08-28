@@ -393,6 +393,21 @@ pub fn forward_announce(source: &str, data: &[u8]) {
     }
 }
 
+/// 与新 peer 建立连接（PeerConnected 事件）：立即补发公告 + 2s 延迟再补一次
+/// （第一次可能早于对端 gossipsub 订阅握手完成被丢弃，契约 5.2「发现新对端后补公告」；
+/// 对端收到后也会补发，形成交叉回响，消灭最长 5min 的发现盲区）。
+pub fn on_peer_connected(app: &AppHandle) {
+    publish_announce(app);
+    let app2 = app.clone();
+    std::thread::Builder::new()
+        .name("lan-file-reannounce".into())
+        .spawn(move || {
+            std::thread::sleep(Duration::from_secs(2));
+            publish_announce(&app2);
+        })
+        .ok();
+}
+
 fn init_announce_bridge(app: AppHandle, signing: ed25519_dalek::SigningKey) {
     let (tx, rx) = std::sync::mpsc::channel::<(String, Vec<u8>)>();
     let _ = ANNOUNCE_TX.set(tx);

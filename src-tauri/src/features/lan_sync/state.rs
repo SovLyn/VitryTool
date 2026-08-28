@@ -115,6 +115,10 @@ pub fn init(
                             crate::features::lan_file::state::forward_announce(&source, &data);
                         }
                     }
+                    NodeEvent::PeerConnected { .. } => {
+                        // 连接建立 → lan_file 公告桥立即补发公告（消灭 5min 发现盲区）
+                        crate::features::lan_file::state::on_peer_connected(&consumer_app);
+                    }
                     NodeEvent::PeerCountChanged(_) => {}
                 }
             }
