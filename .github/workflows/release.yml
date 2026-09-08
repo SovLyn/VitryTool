@@ -174,9 +174,34 @@ jobs:
         run: pnpm tauri android build --apk
 
       # 上传到与 desktop job 相同的 Release 草稿（同 tag：先到先建、后到更新）
+      #
+      # APK 实际输出布局（tauri android build --apk）：
+      #   app/build/outputs/apk/<flavor=universal>/<buildType=release>/app-universal-release.apk
+      # 之前写死 `apk/*/*.apk`（少一层）→ `no matches found`，Android job 整个失败。
+      # 现用 find 定位（排除 baselineProfiles 等干扰），优先 release 产物，并在找不到时明确报错。
+      #
+      # tag 名不取 `github.ref_name`：手动 workflow_dispatch 时它是分支名（main），
+      # 会创建名为 main 的 Release；统一从 package.json 版本推导（v0.3.0），两种触发都正确。
       - name: Upload APK to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" --draft --generate-notes 2>/dev/null || true
-          gh release upload "${{ github.ref_name }}" src-tauri/gen/android/app/build/outputs/apk/*/*.apk --clobber
+          set -euo pipefail
+          APK_DIR=src-tauri/gen/android/app/build/outputs/apk
+          mapfile -t ALL_APKS < <(find "$APK_DIR" -type f -name '*.apk' ! -path '*baselineProfiles*' | sort)
+          if [ ${#ALL_APKS[@]} -eq 0 ]; then
+            echo "::error::Android 构建未产出 APK（$APK_DIR 下没有 .apk）"
+            find "$APK_DIR" -type f | head -50 || true
+            exit 1
+          fi
+          # 优先 release 产物（debug 只在没有 release 时兜底）
+          APKS=()
+          for f in "${ALL_APKS[@]}"; do
+            case "$f" in *release*) APKS+=("$f") ;; esac
+          done
+          if [ ${#APKS[@]} -eq 0 ]; then APKS=("${ALL_APKS[@]}"); fi
+          printf 'uploading:\n'; printf '  %s\n' "${APKS[@]}"
+          TAG="v$(node -p "require('./package.json').version")"
+          echo "release tag: $TAG"
+          gh release create "$TAG" --draft --generate-notes 2>/dev/null || true
+          gh release upload "$TAG" "${APKS[@]}" --clobber
