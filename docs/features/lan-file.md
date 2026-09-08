@@ -1,6 +1,6 @@
 # 局域网文件共享（lan-file）
 
-- 状态：已实现（0.3.0，2026-08-28；协议层真机验证通过，UI 完整互通待用户人工实测）
+- 状态：已实现（0.3.0，2026-08-29；**真机双机矩阵通过**——双向发现、TOFU 接受、已信任免确认、拒绝、取消墓碑、接收方重启续传、60s 超时、自动图片通道点亮、撤销公告；后端 149 dt、前端 125 vitest 全绿）
 - 接口契约：[docs/api/lan-file.md](../api/lan-file.md)
 - 后端 mod：`src-tauri/src/features/lan_file/`
 - 前端目录：`src/features/lan-file/`
@@ -34,7 +34,7 @@ features/clipboard_history ──(新图片条目 is_new)──▶ core/hooks �
 - **core/peer_node（增量）**：`Publish` / `PubsubMessage` 增加 `topic` 字段（多主题通道，业务语义仍留在各 feature）；公告主题 `vitrytool-lan-file-announce`（`{v, peerId, terminal, tcpPort, fingerprint, caps}`，`caps: file/img`）。
 - **features/lan_file**：`commands.rs`（7 命令薄壳）/ `service.rs`（状态机 + 信任 + 公告 peers）/ `state.rs`（共享态 + 单会话槽）/ `store.rs`（`lan-file.json`：开关 + 信任表；`AppData/lanfile/` 落盘 + sidecar `.meta.json` 续传墓碑）/ `transport/`（协议编解码与密码学原语组装，不碰磁盘与 UI）。
 - **数据面独立裸 TCP**（预研五家共识）：文件正文不经 libp2p 流（gossipsub 64KiB 上限 / yamux RTT 锁吞吐 / Windows dial 挂起三大实测缺陷，预研 §1.2、§4.5）；libp2p 只做发现与端口公告。
-- **前端**：新「文件」导航页（拖放区 + 终端卡网格 + 传输卡，移动端隐藏）；提议面板（顶部下滑 + 60s 环，主窗隐藏时唤窗）；托盘「文件共享」快速开关（hooks 模式）；收件箱图片点亮 + 浮层预览。
+- **前端**：新「文件」导航页（拖放区 + 终端卡网格 + 传输卡，移动端隐藏）；提议面板（顶部下滑 + 60s 环，主窗隐藏时唤窗）；托盘「文件共享」快速开关（hooks 模式）；收件箱图片点亮 + 浮层预览；「选择文件」旁一键打开**接收文件夹**（`AppData/lanfile`，收到的东西都在这里）。
 - **单实例 + 持久身份**（lan-sync 0.2.5 已建）：一台机器一个节点，peerId = ed25519 公钥 multihash——**身份即指纹**，无需另设指纹信任机制。
 
 ## 数据流（关键路径）
@@ -48,7 +48,7 @@ features/clipboard_history ──(新图片条目 is_new)──▶ core/hooks �
 
 断线：TCP 断（本端未取消）→ 接收侧 sidecar 保留进 120s 窗口，发端面板态转 resuming
   → 发起方指数退避重连（同 transferId + resumeHint）→ 接收方查 sidecar 无墓碑 → Accept{resume, offsets} → 续发
-  （窗口内 resumed 不再弹提议面板；超窗 → 双侧 failed + 清理）
+  （窗口内 resumed 不再弹提议面板；接收侧同时转 resuming 横幅，超窗由独立计时线程清理 → 双侧 failed + 通知）
 
 取消：任一侧 cancel → Cancel 帧尽力送达 + 本地 sidecar 写 cancelled 墓碑、删 .tmp、清内存
   → 对端收到 Cancel 或重连撞墓碑 → 任务终止，**永不自动续传**（须重新发起）
@@ -68,22 +68,27 @@ features/clipboard_history ──(新图片条目 is_new)──▶ core/hooks �
 - **DoS 卫生**：帧长先校验再分配（上限 1MiB）；公告 12min 过期驱逐；图片小队列深度 8 丢旧；单任务 ≤100 文件。
 - **鲁棒性**：数据面无帧级硬超时（预研 kimi 30s 超时中断 128MB 的教训——坏链路可扛 >30s 停顿）；断线续传仅对「异常中断」开放，用户取消 = 永久终止（人工决定不被自动化越过）。
 - **边界（v1 不做）**：目录树/共享文件夹、无人值守接收、多任务并发、传输历史持久化、暂停/恢复显式语义、移动端发起——见契约 §7。
+  - 目录**不静默失败**：拖入文件夹会在入列前被 `checkLanFilePaths` 拦下并提示「暂不支持文件夹传输」。
 
 ## 测试要点（dt）
 
 - `transport/proto.rs`：帧编解码往返、超长帧拒绝、握手帧序列字节级往返、AAD 篡改拒绝、nonce 不重复。
 - `transport/crypto.rs`：HKDF 双向密钥派生确定性/独立性、ChaCha20-Poly1305 往返、错误密钥失败、签名验证通过/拒绝（含 multihash(公钥)==peerId 一致性）。
-- `service.rs` 纯逻辑：`sanitize_filename`（路径穿越/控制字符/盘符/空名 ≥7 组）、重名改名、状态机全转移（offer→accept→transfer→done / reject / timeout / cancel / resume / 超窗，注入假时钟）、续传 offset 计算、取消墓碑拦截重连、TOFU 信任表读写、nameClash 判定、公告过期驱逐、图片通道门控矩阵（信任×大小×扩展名×开关）、磁盘检查纯函数、`bytesPerSec` EMA。
+- `service.rs` 纯逻辑：`sanitize_filename`（路径穿越/控制字符/盘符/空名 ≥7 组）、重名改名、状态机全转移（offer→accept→transfer→done / reject / timeout / cancel / resume / 超窗，注入假时钟）、续传 offset 计算、取消墓碑拦截重连、TOFU 信任表读写、nameClash 判定、公告过期驱逐与撤销移除、图片通道门控矩阵（信任×新鲜观察×大小×扩展名×开关）、磁盘检查纯函数、`bytesPerSec` EMA、稳定错误码归一与终态映射、启动残留工件挑选。
 - 集成：tokio 回环双实例端到端（小文件全链路 / 篡改 mid-stream 检测 / 断连重连续传 / 取消墓碑），`#[tokio::test]`。
-- 前端 vitest：api 封装、FilePage（拖入预填/disabled/即发起）、OfferPanel（倒计时/形变/TOFU 展开/nameClash 警告卡）、TransferCard（七态渲染/resuming 横幅/reduced-motion）、收件箱点亮与预览、Settings 状态行与移除信任。
+- 前端 vitest：api 封装、FilePage（拖入预填/disabled/即发起/发起后保留已选列表）、OfferPanel（倒计时/形变/TOFU 展开/nameClash 警告卡）、TransferCard（七态渲染/resuming 横幅/取消/重试/打开所在位置/未知错误码兜底/reduced-motion）、收件箱点亮与预览、Settings 状态行与移除信任。
 - 真机验收（硬性，用户指定）：Windows ↔ silverbox（`sovlyn@192.168.31.203`）双机矩阵——双向发现、互发（文本/大文件/多文件）、拔线断点续传、取消不续、TOFU 首确、截图自动点亮、磁盘满负向。**通过才签发 0.3.0。**
+  - **2026-08-29 实测通过**（Windows 192.168.31.44 ↔ silverbox 192.168.31.203）：双向发现、TOFU 接受、已信任免确认（多文件）、反向传输 + 真 UI 接受、拒绝、取消（墓碑 + `.tmp` 清理）、**接收方进程重启后续传（接收文件 SHA-256 与源逐字节一致）**、60s 提议超时、自动图片通道（信封 `hash`/`xfer` + 字节落盘 + 点亮条件成立）、撤销公告即时移除。实测同时暴露并修复 13 个缺陷（见 `CHANGELOG.md` 0.3.0 修复节）。
+  - 未覆盖：磁盘满负向（需造满盘环境）、移动端真机图片接收（门控逻辑有 dt）、收件箱图片点亮的视觉确认（路径构造已有 vitest）。
 
 ## 已知限制（README 同步）
 
 - **Windows 防火墙可能拦截首次入站 TCP**：新程序在 Public 档案下默认被拦 → 首次使用需允许 VitryTool 通过防火墙（弹窗或手动添加入站规则）；未放行表现为「对方终端发不过来」（dial 超时），本机仍可主动外发。
 - **Windows 虚拟网卡 mDNS 发现坑沿用 lan-sync**（见 lan-sync 文档）：WSL/Hyper-V 虚拟网卡可能使终端互相发现不了 → 公告随之不可达；规避方式同 lan-sync。
+- **链路差时传输变慢并自动重连续传**：WiFi 丢包使 TCP 拥塞窗口塌缩（实测 cwnd 2 段 / RTT 秒级，吞吐跌到几十 KB/s，观感像「卡住」）。单块 30s 零进展 → 判链路已死 → 重连 + 断点续传；接收侧 60s 无数据同理放行会话槽；期间传输卡显示「网络中断，等待恢复…」。有线链路体验明显更好。
+- **不支持文件夹**：拖入文件夹在入列前被 `checkLanFilePaths` 拦下并提示（v1 只传单个文件，无目录递归/相对结构）。
 - 单会话：同一时刻只能进行一个传输任务；忙时新提议被自动拒绝。
 - 断点续传只认「异常中断」：任何用户取消/拒绝/超时后的断链都不保留进度。
 - 无传输历史：完成后仅本会话内折叠摘要，重启应用即无痕（落盘文件本身保留）。
-- 移动端仅接收图片通道产物，且应用需前台；桌面→手机传文件、手机→任何端发起均不支持。
+- 移动端仅接收图片通道产物，且应用需前台；桌面→手机传文件、手机→任何端发起均不支持。（实现上 `features/lan_file` 两平台均编译并初始化，移动端只不注册 7 个交互命令。）
 - 文件类剪贴板广播（filePaths 元数据）维持占位文本现状，不自动触发传输（防「复制即外发」惊喜，TODO 讨论显式化入口）。

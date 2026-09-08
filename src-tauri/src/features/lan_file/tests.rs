@@ -151,6 +151,95 @@ async fn session_handshake_binds_identity_both_ways() {
     assert!(i.is_initiator());
 }
 
+// ---------------------------------------------------------------------------
+// 帧读取的取消安全（真机实测 bug：200ms 分片轮询取消 read_exact → 帧流失步）
+// ---------------------------------------------------------------------------
+
+/// 复现：读侧在帧只到达一部分时被 `timeout` 取消；补齐后必须仍能读到完整帧。
+///
+/// 旧实现（`read_exact`）会在此丢字节：长度头被消费、载荷前半丢失，下一帧长度字段
+/// 读到载荷中间的随机字节 → `frame too large`（真机实测值 2626586369），传输必然失败。
+#[tokio::test]
+async fn buffered_frame_read_survives_cancellation() {
+    use super::transport::proto::MAX_FRAME_LEN;
+    use super::transport::session::read_frame_buffered;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::{TcpListener, TcpStream};
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (writer, (mut reader, _)) = tokio::join!(
+        async move { TcpStream::connect(addr).await.unwrap() },
+        async move { listener.accept().await.unwrap() },
+    );
+    let mut writer = writer;
+
+    let payload = vec![0xABu8; 4096];
+    // 先写长度头 + 前 1KiB 载荷（模拟 TCP 分片：帧在途但未完整）
+    writer
+        .write_all(&(payload.len() as u32).to_be_bytes())
+        .await
+        .unwrap();
+    writer.write_all(&payload[..1024]).await.unwrap();
+    writer.flush().await.unwrap();
+
+    // 读侧分片等待被取消（已消费的字节必须留在缓冲里）
+    let mut buf = Vec::new();
+    let cancelled = tokio::time::timeout(
+        Duration::from_millis(150),
+        read_frame_buffered(&mut reader, &mut buf),
+    )
+    .await;
+    assert!(cancelled.is_err(), "分片等待应超时取消");
+    assert!(!buf.is_empty(), "已读字节必须保留在缓冲");
+
+    // 补齐剩余载荷 → 再读必须拿到完整帧
+    writer.write_all(&payload[1024..]).await.unwrap();
+    writer.flush().await.unwrap();
+    let frame = read_frame_buffered(&mut reader, &mut buf).await.unwrap();
+    assert_eq!(frame, payload, "取消后仍须完整读出同一帧");
+
+    // 超长长度仍被拒绝（先校验再分配）
+    writer
+        .write_all(&(MAX_FRAME_LEN + 1).to_be_bytes())
+        .await
+        .unwrap();
+    writer.flush().await.unwrap();
+    let err = read_frame_buffered(&mut reader, &mut buf).await;
+    assert!(err.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// 对端取消帧识别（真机实测 bug：Cancel 帧被当成断线 → 不写墓碑、留 .tmp、转 resuming）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn peer_cancel_frame_detected_in_json_read() {
+    use super::transport::session::SessionError;
+    let (mut i, _ip, mut r, _rp) = handshake_loopback().await;
+    // 发起方发 Cancel（独立 cancel_aad 域）
+    i.send_cancel("user").await;
+    // 应答方按普通 JSON 域读：必须识别为「对端取消」，而不是 IO 错误
+    let err = r
+        .recv_json::<super::transport::proto::ReplyFrame>()
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, SessionError::Cancelled(_)),
+        "Cancel 帧应识别为对端取消，实际 {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn peer_cancel_frame_detected_in_chunk_read() {
+    use super::transport::session::SessionError;
+    let (mut i, _ip, mut r, _rp) = handshake_loopback().await;
+    i.send_cancel("user").await;
+    // 接收方正在等 Chunk（chunk AAD 域）→ 同样必须识别为对端取消
+    let err = r.recv_chunk(0, 0).await.unwrap_err();
+    assert!(matches!(err, SessionError::Cancelled(_)));
+}
+
 #[tokio::test]
 async fn session_json_frames_roundtrip() {
     let (mut i, _ip, mut r, _rp) = handshake_loopback().await;
@@ -434,5 +523,93 @@ fn multiaddr_ip_extraction() {
     assert_eq!(super::state::ip_from_multiaddr("/ip6/::1/tcp/12345"), "::1");
 }
 
+// ---------------------------------------------------------------------------
+// 续传对齐（真机实测 bug：`.tmp` 比 sidecar 记录更长 → append 错位 → 哈希对账失败）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn resume_truncate_aligns_tmp_to_sidecar_offset() {
+    use std::io::Write;
+    let chunk = super::transport::proto::CHUNK_SIZE;
+    // 源文件 = 3 块可辨识内容
+    let src: Vec<u8> = (0..chunk * 3).map(|i| (i % 251) as u8).collect();
+    let dir = tmp_dir("resume-align");
+    let tmp = dir.join(".t.0.tmp");
+    // 模拟异常中断：.tmp 已写到 1.5 块，而 sidecar 只记录到 1 块
+    fs::write(&tmp, &src[..chunk + chunk / 2]).unwrap();
+    let recorded = chunk as u64;
+
+    // 续传对齐：截断到记录偏移
+    let f = fs::OpenOptions::new().write(true).open(&tmp).unwrap();
+    f.set_len(recorded).unwrap();
+    drop(f);
+
+    // 发送方从 recorded 继续 → 接收方 append
+    let mut out = fs::OpenOptions::new().append(true).open(&tmp).unwrap();
+    out.write_all(&src[recorded as usize..]).unwrap();
+    out.flush().unwrap();
+    drop(out);
+
+    // 结果必须与源文件逐字节一致（对齐成功）
+    assert_eq!(fs::read(&tmp).unwrap(), src);
+    let _ = fs::remove_dir_all(dir);
+}
+
 use super::store::hex_encode;
 use sha2::{Digest as _, Sha256};
+
+// ---------------------------------------------------------------------------
+// 待决提议表（accept/reject 命令的送达通道；曾因从不注册导致「接受」必报 peer_not_found）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pending_offer_registry_delivers_decision() {
+    use super::state::{
+        pending_offer_peer, register_pending_offer, resolve_offer, unregister_pending_offer,
+        TaskCommand,
+    };
+    let (tx, rx) = std::sync::mpsc::channel::<TaskCommand>();
+    register_pending_offer("t-accept", "peerA", "SOVLYN", tx);
+    assert_eq!(
+        pending_offer_peer("t-accept"),
+        Some(("peerA".to_string(), "SOVLYN".to_string()))
+    );
+    // 命令层查表 → 转发决定 → 任务侧收到 Accept
+    resolve_offer("t-accept", TaskCommand::Accept);
+    assert!(matches!(rx.recv().unwrap(), TaskCommand::Accept));
+    // 已消费：表项移除，重复 resolve 不 panic 也不重复投递
+    assert!(pending_offer_peer("t-accept").is_none());
+    resolve_offer("t-accept", TaskCommand::Reject);
+    assert!(rx.try_recv().is_err());
+
+    // Reject / Cancel 同样送达
+    let (tx2, rx2) = std::sync::mpsc::channel::<TaskCommand>();
+    register_pending_offer("t-reject", "peerB", "OTHER", tx2);
+    resolve_offer("t-reject", TaskCommand::Reject);
+    assert!(matches!(rx2.recv().unwrap(), TaskCommand::Reject));
+    let (tx3, rx3) = std::sync::mpsc::channel::<TaskCommand>();
+    register_pending_offer("t-cancel", "peerC", "THIRD", tx3);
+    resolve_offer("t-cancel", TaskCommand::Cancel);
+    assert!(matches!(rx3.recv().unwrap(), TaskCommand::Cancel));
+
+    // 兜底清理（超时 / 任务结束）
+    let (tx4, _rx4) = std::sync::mpsc::channel::<TaskCommand>();
+    register_pending_offer("t-stale", "peerD", "STALE", tx4);
+    unregister_pending_offer("t-stale");
+    assert!(pending_offer_peer("t-stale").is_none());
+    // 未知 transferId 查表为空（命令层据此返回 lan_file.peer_not_found）
+    assert!(pending_offer_peer("nope").is_none());
+}
+
+// ---------------------------------------------------------------------------
+// 剪贴板新鲜观察表（移动端图片通道门控第二层证据，契约 5.9）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn clipboard_peer_freshness_tracking() {
+    use super::state::{clipboard_peer_fresh, note_clipboard_peer};
+    assert!(!clipboard_peer_fresh("peer-never-seen"));
+    note_clipboard_peer("peer-seen");
+    assert!(clipboard_peer_fresh("peer-seen"));
+    assert!(!clipboard_peer_fresh("peer-other"));
+}

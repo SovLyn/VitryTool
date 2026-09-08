@@ -184,13 +184,11 @@ mod tests {
     }
 
     #[test]
-    fn unregistered_switches_return_none() {
+    fn switches_registry_roundtrip() {
+        // 未注册 → None
         assert!(lan_sync_broadcast_enabled().is_none());
         assert!(lan_sync_receive_enabled().is_none());
-    }
-
-    #[test]
-    fn registered_switches_delegate_to_fns() {
+        // 注册 → 委托（原先拆成两个测试会与并行执行互相干扰 → 偶发失败）
         let slot = switches_slot();
         slot.lock().unwrap().replace(LanSyncSwitches {
             broadcast_enabled: || true,
@@ -200,6 +198,9 @@ mod tests {
         });
         assert_eq!(lan_sync_broadcast_enabled(), Some(true));
         assert_eq!(lan_sync_receive_enabled(), Some(false));
+        // 注销 → 回到 None
         slot.lock().unwrap().take();
+        assert!(lan_sync_broadcast_enabled().is_none());
+        assert!(lan_sync_receive_enabled().is_none());
     }
 }

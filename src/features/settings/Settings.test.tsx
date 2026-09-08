@@ -7,6 +7,7 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getMaxEntries } from "../../api/clipboard-history";
+import { getLanFileTrustedPeers } from "../../api/lan-file";
 import { getHotkey, getHotkeyCapability } from "../../api/quick-paste";
 import { I18nProvider } from "../../i18n";
 import { Settings } from "./Settings";
@@ -47,6 +48,20 @@ vi.mock("../../api/lan-sync", () => ({
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async () => () => undefined),
 }));
+// lan-file（0.3.0）：信任列表 / 状态行
+vi.mock("../../api/lan-file", () => ({
+  getLanFileStatus: vi.fn(async () => ({
+    enabled: true,
+    listening: true,
+    tcpPort: 60379,
+    peerCount: 1,
+    trustedCount: 1,
+  })),
+  getLanFileTrustedPeers: vi.fn(async () => []),
+  setLanFileEnabled: vi.fn(async () => undefined),
+  removeLanFileTrustedPeer: vi.fn(async () => undefined),
+  LAN_FILE_SETTINGS_UPDATED_EVENT: "lan-file://settings-updated",
+}));
 // 通知系统（0.2.8）：设置操作反馈经全局通知；mock 掉 invoke 依赖
 vi.mock("../../api/notify", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/notify")>();
@@ -56,6 +71,7 @@ vi.mock("../../api/notify", async (importOriginal) => {
 const mockedMaxEntries = vi.mocked(getMaxEntries);
 const mockedGetHotkey = vi.mocked(getHotkey);
 const mockedCapability = vi.mocked(getHotkeyCapability);
+const mockedTrusted = vi.mocked(getLanFileTrustedPeers);
 
 /** 等待 onMount 中的异步能力检测 / 数据拉取完成。 */
 async function flush() {
@@ -107,5 +123,41 @@ describe("设置页 · 全局快捷键能力检测", () => {
 
     expect(screen.getByText("未设置")).toBeTruthy();
     expect(screen.queryByText("全局快捷键在当前系统不可用")).toBeNull();
+  });
+});
+
+describe("设置页 · 已信任终端列表（lan-file 0.3.0）", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    mockedCapability.mockResolvedValue({ supported: true });
+    mockedMaxEntries.mockResolvedValue(64);
+    mockedGetHotkey.mockResolvedValue(null);
+    mockedTrusted.mockReset();
+  });
+
+  it("有已信任终端：渲染列表且**不显示空态提示**（状态行「已信任 1」与列表一致）", async () => {
+    mockedTrusted.mockResolvedValue([
+      {
+        peerId: "12D3KooWQKXPQZEfk3CPM63QoHTbwvB1pT6F1qagAuKKDxJLHQ3u",
+        terminalName: "SOVLYN",
+        trustedAt: "2026-09-08T10:00:48Z",
+      },
+    ]);
+    await renderSettings();
+
+    expect(screen.getByText("SOVLYN")).toBeTruthy();
+    expect(screen.getByText("12D3KooWQK…")).toBeTruthy();
+    // 空态提示不得出现（真机实测 bug：它与列表同时显示）
+    expect(screen.queryByText(/尚无已信任终端/)).toBeNull();
+    expect(screen.getByText("移除信任")).toBeTruthy();
+  });
+
+  it("无已信任终端：显示空态提示", async () => {
+    mockedTrusted.mockResolvedValue([]);
+    await renderSettings();
+
+    expect(screen.getByText(/尚无已信任终端/)).toBeTruthy();
+    expect(screen.queryByText("移除信任")).toBeNull();
   });
 });

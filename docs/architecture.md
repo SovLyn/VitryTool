@@ -89,7 +89,7 @@ src/
 
 - 后端：`cargo test`（位于 `src-tauri/`）。**开发者测试（dt）**：单元测试放在功能 mod 的 `tests.rs`，文档示例使用 doctest；每个功能 mod 必须要有。
 - 前端：vitest（`pnpm test`），配置见 `vite.config.ts`。
-- CI（GitHub Actions：fmt + clippy + cargo test + 前端 build + vitest）规划中，见 TODO.md。
+- CI（GitHub Actions：`.github/workflows/ci.yml`——fmt + clippy + cargo test + vitest + tsc + 前端 build）；CD（`.github/workflows/release.yml`——打 `v*` tag 触发三平台安装包 + Android APK → GitHub Release 草稿）。
 
 ## 8. 日志约定
 

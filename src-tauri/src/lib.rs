@@ -93,6 +93,8 @@ pub fn run() {
                 // 先置位关闭标记，消费者线程据此不误报「节点运行时错误」通知
                 // （正常退出 vs 节点崩溃的区分，见 docs/api/notify.md 5.2）
                 features::lan_sync::state::mark_shutting_down();
+                // 退出前尽力发撤销公告（契约 lan-file 5.2：发不出靠接收侧 TTL 驱逐）
+                features::lan_file::state::revoke_announce(app_handle);
                 features::lan_file::state::mark_shutting_down();
                 if let Some(mut node) = app_handle
                     .state::<AppState>()
@@ -150,6 +152,7 @@ fn build_invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + S
         features::lan_file::reject_lan_file,
         features::lan_file::cancel_lan_file_transfer,
         features::lan_file::set_lan_file_enabled,
+        features::lan_file::check_lan_file_paths,
         features::lan_file::get_lan_file_trusted_peers,
         features::lan_file::remove_lan_file_trusted_peer,
         // 通知（core/notify，契约 docs/api/notify.md）

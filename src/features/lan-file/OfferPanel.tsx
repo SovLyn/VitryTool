@@ -5,6 +5,7 @@
 //! 前端倒计时环仅视觉同步。
 
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import {
   acceptLanFile,
@@ -31,11 +32,31 @@ export function OfferPanel() {
       setOffer(e.payload);
       setRemaining(OFFER_WINDOW_MS);
       setShowFingerprint(false);
+      void surfaceWindow();
     });
     onCleanup(() => {
       void unlisten.then((fn) => fn());
     });
   });
+
+  /**
+   * 唤窗（契约 5.4：主窗隐藏 → 前端唤窗）。
+   *
+   * 关闭按钮走「隐藏常驻」（托盘），故新提议到达时必须显式 show + focus，
+   * 否则用户在别的窗口里看不到提议面板（60s 后自动拒绝）。
+   */
+  async function surfaceWindow() {
+    try {
+      const win = getCurrentWindow();
+      if (!(await win.isVisible())) {
+        await win.show();
+      }
+      await win.unminimize();
+      await win.setFocus();
+    } catch (err) {
+      console.warn("lan-file: surface window failed:", err);
+    }
+  }
 
   // 倒计时视觉同步（60s 窗口；后端为准）
   createEffect(() => {
@@ -138,6 +159,12 @@ export function OfferPanel() {
             </button>
             <Show when={showFingerprint()}>
               <code class="offer-fingerprint">{o().fingerprint}</code>
+            </Show>
+            {/* TOFU 参考信息：该 peerId 上次出现在公告列表距今（契约 3） */}
+            <Show when={o().knownFromMinutes > 0}>
+              <div class="offer-known">
+                {t("lanFile.knownFrom", { minutes: o().knownFromMinutes })}
+              </div>
             </Show>
 
             {/* 按钮位：nameClash 时默认位权在「拒绝」（契约 5.4） */}

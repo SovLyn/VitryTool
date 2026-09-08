@@ -39,6 +39,12 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => undefined),
   listen: vi.fn(async () => () => undefined),
 }));
+// lan-file F1：全局拖放监听（webview 依赖 Tauri 宿主能力，测试中 mock）
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: vi.fn(async () => () => undefined),
+  }),
+}));
 // 主题模块含 matchMedia/localStorage 副作用，测试中 mock 掉 useTheme 供设置页使用
 vi.mock("./theme", () => ({
   useTheme: () => ({

@@ -4,7 +4,11 @@
 //! 前端以错误码为 key 查 i18n 字典（`src/i18n/locales/*.json` 的 `lanFile` 节）。
 
 import { invoke } from "@tauri-apps/api/core";
+import { appDataDir, join } from "@tauri-apps/api/path";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getErrorCode } from "./clipboard-history";
+import { resolveNotifyCode, UNKNOWN_NOTIFY_CODE } from "./notify";
+import type { TFunction } from "../i18n";
 
 // ---------------------------------------------------------------------------
 // 类型（契约第 3 节）
@@ -85,6 +89,24 @@ export interface SendLanFileResp {
   transferId: string;
 }
 
+/** `checkLanFilePaths` 元素（拖入/选择后的路径预检）。 */
+export interface LanFilePathInfo {
+  path: string;
+  /** 净化后的展示名。 */
+  name: string;
+  /** 字节数（非普通文件为 0）。 */
+  size: number;
+  /** 目录：v1 不支持传输（前端忽略并提示）。 */
+  isDir: boolean;
+  /** 普通文件且可读 = 可直接发送。 */
+  readable: boolean;
+}
+
+/** `checkLanFilePaths` 响应。 */
+export interface LanFilePathsResp {
+  paths: LanFilePathInfo[];
+}
+
 // ---------------------------------------------------------------------------
 // 事件名（契约第 2 节）
 // ---------------------------------------------------------------------------
@@ -115,6 +137,15 @@ export function getLanFilePeers(): Promise<LanFilePeersResp> {
 /** 发起传输任务 → 返回 transferId；已有活跃任务报 `lan_file.busy`。 */
 export function sendLanFile(peerId: string, filePaths: string[]): Promise<SendLanFileResp> {
   return invoke<SendLanFileResp>("send_lan_file", { peerId, filePaths });
+}
+
+/**
+ * 路径预检（契约 5.6）：拖入/选择后先问后端「能不能传」。
+ *
+ * 用于把**目录**挡在待传列表之外（v1 不支持文件夹传输），并顺带拿到文件大小。
+ */
+export function checkLanFilePaths(filePaths: string[]): Promise<LanFilePathsResp> {
+  return invoke<LanFilePathsResp>("check_lan_file_paths", { filePaths });
 }
 
 /** 接受提议（未知终端同时写入信任表 = TOFU 确认）。 */
@@ -158,6 +189,28 @@ export function removeLanFileTrustedPeer(peerId: string): Promise<void> {
 export function lanFileError(err: unknown): string {
   const code = getErrorCode(err);
   return code || "lan_file.transfer_failed";
+}
+
+/**
+ * 稳定错误码 → 可读文案（契约第 4 节）。
+ *
+ * 映射链：后端码 → `resolveNotifyCode` 的 i18n 键 → `t()`；查不到 → `notify.unknown`
+ * （带 `{code}` 参数便于排查）。空码返回空串（调用方不渲染错误行）。
+ */
+export function translateLanFileError(t: TFunction, code?: string | null): string {
+  if (!code) return "";
+  const text = t(resolveNotifyCode(code), { code });
+  return text || t(UNKNOWN_NOTIFY_CODE, { code });
+}
+
+/** 在文件管理器中显示落盘文件（契约 5.3：接收侧 done 的「打开所在位置」）。 */
+export async function revealSavedPath(path: string): Promise<void> {
+  await revealItemInDir(path);
+}
+
+/** 一键打开本机**接收文件夹**（`AppData/lanfile`，交互传输落盘目录，契约 5.5）。 */
+export async function openReceiveFolder(): Promise<void> {
+  await openPath(await join(await appDataDir(), "lanfile"));
 }
 
 /** 字节数人性化展示（KB/MB/GB，1 位小数；<1KB 显示 B）。 */

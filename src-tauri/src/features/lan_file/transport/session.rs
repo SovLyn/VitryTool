@@ -59,6 +59,40 @@ pub async fn read_frame(stream: &mut TcpStream) -> Result<Vec<u8>, SessionError>
     Ok(buf)
 }
 
+/// 读取一帧（**取消安全**版）：`buf` 为调用方跨调用保留的接收缓冲。
+///
+/// 为什么需要：应用层等待应答时用 `tokio::time::timeout` 分片轮询（`wait_reply` 的
+/// 200ms 片）以便侦测用户取消。`read_exact` **不可取消**——future 被 drop 时已消费的
+/// 半帧字节丢失，帧流随即失步（下一帧长度字段读到载荷中间的随机字节，真机实测报
+/// `frame too large: 2626586369`，传输必然失败）。本实现只用可取消的 `read()`
+/// （tokio 保证被 drop 时不丢数据）把字节累积进 `buf`，帧边界在 `buf` 内解析，
+/// 因此任意时刻取消都不会破坏帧流。
+pub async fn read_frame_buffered(
+    stream: &mut TcpStream,
+    buf: &mut Vec<u8>,
+) -> Result<Vec<u8>, SessionError> {
+    loop {
+        if buf.len() >= 4 {
+            let len = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+            if len > MAX_FRAME_LEN {
+                return Err(SessionError::Io(format!("frame too large: {len}")));
+            }
+            let total = 4 + len as usize;
+            if buf.len() >= total {
+                let frame = buf[4..total].to_vec();
+                buf.drain(..total);
+                return Ok(frame);
+            }
+        }
+        let mut tmp = [0u8; 16 * 1024];
+        let n = stream.read(&mut tmp).await?;
+        if n == 0 {
+            return Err(SessionError::Io("peer closed".into()));
+        }
+        buf.extend_from_slice(&tmp[..n]);
+    }
+}
+
 /// 写一帧。
 pub async fn write_frame(stream: &mut TcpStream, data: &[u8]) -> Result<(), SessionError> {
     stream.write_all(&(data.len() as u32).to_be_bytes()).await?;
@@ -101,6 +135,8 @@ pub struct SecureSession {
     /// 本端是否发起方（Chunk/End 由发起方发送，方向密钥选择用）。
     is_initiator: bool,
     pub session_id: [u8; SESSION_ID_LEN],
+    /// 接收缓冲（取消安全的帧读取；见 `read_frame_buffered`）。
+    rx_buf: Vec<u8>,
 }
 
 /// 已认证的对端身份（握手产物）。
@@ -253,6 +289,7 @@ impl SecureSession {
                 is_initiator: as_initiator,
                 stream,
                 session_id,
+                rx_buf: Vec::new(),
             };
             Ok((
                 session,
@@ -344,14 +381,33 @@ impl SecureSession {
 
     async fn recv_raw(&mut self, aad: &[u8]) -> Result<Vec<u8>, SessionError> {
         // 计数器由帧序保证（TCP 有序）；失败即断连（上层重建）
-        let ct = read_frame(&mut self.stream).await?;
+        let ct = read_frame_buffered(&mut self.stream, &mut self.rx_buf).await?;
         let counter = self.rx.counter;
         self.rx.counter = self.rx.counter.wrapping_add(1);
         let nonce = self.rx.nonce(counter);
-        self.rx
-            .cipher
-            .decrypt(&nonce, Payload { msg: &ct, aad })
-            .map_err(|e| SessionError::Io(format!("open: {e}")))
+        match self.rx.cipher.decrypt(&nonce, Payload { msg: &ct, aad }) {
+            Ok(pt) => Ok(pt),
+            Err(e) => {
+                // AAD 域回退：对端 Cancel 帧用 `cancel_aad` 域（同密钥同 nonce，仅 AAD 不同），
+                // 期望 Chunk/JSON 域解密必然失败——再按 cancel 域试一次即可识别「对端显式取消」。
+                // 否则取消会被误判为断线（真机实测：接收侧不写墓碑、不删 .tmp，转 resuming）。
+                let cancel = cancel_aad(&self.session_id);
+                if cancel != aad {
+                    if let Ok(pt) = self.rx.cipher.decrypt(
+                        &nonce,
+                        Payload {
+                            msg: &ct,
+                            aad: &cancel,
+                        },
+                    ) {
+                        if let Some(reason) = Self::try_decode_cancel(&pt) {
+                            return Err(SessionError::Cancelled(reason));
+                        }
+                    }
+                }
+                Err(SessionError::Io(format!("open: {e}")))
+            }
+        }
     }
 
     pub async fn shutdown(&mut self) {

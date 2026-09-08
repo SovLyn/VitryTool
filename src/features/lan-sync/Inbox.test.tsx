@@ -58,6 +58,16 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async () => () => undefined),
 }));
 
+// 图片点亮：asset 协议 scope 只认**绝对路径**（真机实测：相对路径被拒）
+const APP_DATA = "C:\\Users\\x\\AppData\\Roaming\\com.sovly.vitrytool";
+vi.mock("@tauri-apps/api/path", () => ({
+  appDataDir: vi.fn(async () => "C:\\Users\\x\\AppData\\Roaming\\com.sovly.vitrytool"),
+  join: vi.fn(async (...parts: string[]) => parts.join("\\")),
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: vi.fn((p: string) => `asset://localhost/${p.replace(/\\/g, "/")}`),
+}));
+
 // 通知系统（0.2.8）：页面操作反馈经全局通知；mock 掉 invoke 依赖，断言调用
 vi.mock("../../api/notify", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/notify")>();
@@ -140,5 +150,67 @@ describe("Inbox 收件箱页", () => {
     renderInbox();
     await screen.findByText("hello from silverbox");
     expect(getLanInbox).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 图片点亮路径（lan-file 5.7-4）：asset 协议 scope 只认绝对路径
+// ---------------------------------------------------------------------------
+
+describe("收件箱图片点亮 · 路径构造", () => {
+  /** 捕获探测用的图片 URL（jsdom 不真正加载图片，用桩触发 onload）。 */
+  let captured: string[] = [];
+
+  beforeEach(() => {
+    captured = [];
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(value: string) {
+        captured.push(value);
+        // 只有 png 命中 → 模拟加载成功
+        setTimeout(() => (value.endsWith(".png") ? this.onload?.() : this.onerror?.()), 0);
+      }
+    }
+    vi.stubGlobal("Image", FakeImage);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    cleanup();
+  });
+
+  it("按 imageMeta.hash 探测时使用应用数据目录的**绝对路径**", async () => {
+    vi.mocked(getLanInbox).mockResolvedValueOnce({
+      nodes: [
+        {
+          peerId: "p1",
+          terminalName: "SILVERBOX",
+          entries: [
+            {
+              id: "img1",
+              peerId: "p1",
+              terminalName: "SILVERBOX",
+              receivedAt: "2026-09-08T10:00:00Z",
+              sentAt: "2026-09-08T10:00:00Z",
+              fingerprint: "f-img",
+              imageMeta: { name: "shot.png", width: 400, height: 300, size: 100, hash: "hash1" },
+            },
+          ],
+        },
+      ],
+    } as never);
+    renderInbox();
+    await vi.waitFor(() => expect(captured.length).toBeGreaterThan(0));
+    // 必须是绝对路径（此前是相对路径 `lan-inbox-images/...` → asset 协议拒绝，图片永不点亮）
+    expect(captured[0]).toContain(APP_DATA.replace(/\\/g, "/"));
+    expect(captured[0]).toContain("lan-inbox-images/hash1.png");
+    // 命中后渲染真实缩略图（alt="" 是装饰性图片，按 class 取）
+    await vi.waitFor(() =>
+      expect(document.querySelector(".inbox-image-thumb")).toBeTruthy(),
+    );
+    expect(document.querySelector(".inbox-image-thumb")!.getAttribute("src")).toContain(
+      "lan-inbox-images/hash1.png",
+    );
   });
 });

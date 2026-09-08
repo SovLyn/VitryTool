@@ -123,7 +123,12 @@ pub struct ActiveTask {
     pub terminal_name: String,
     /// 任务命令入口（任务侧 Drop 时通道断开）。
     pub cmd_tx: Sender<TaskCommand>,
+    /// 会话槽代数（续传顶替旧会话时递增；释放时校验，避免旧任务误清新槽）。
+    pub epoch: u64,
 }
+
+/// 会话槽代数计数器。
+static SESSION_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 static LAN_FILE: OnceLock<Arc<Mutex<LanFileShared>>> = OnceLock::new();
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
@@ -183,6 +188,10 @@ pub fn init(
 ) -> Result<(), String> {
     let backend = StoreBackend::new(app).map_err(|e| e.0)?;
     let settings = backend.load_settings().map_err(|e| e.0)?;
+
+    // 启动清理（契约 5.5）：扫 `AppData/lanfile` 的 sidecar 与 `.tmp`，
+    // 超过上次 mtime + 120s 的残留直接清理；窗口内的保留等发起方重连续传。
+    cleanup_stale_transfer_artifacts(app);
 
     // 终端名与 lan-sync 同源（设置页一处改名，处处生效）
     let terminal_name = crate::features::lan_sync::state::shared()
@@ -271,6 +280,41 @@ pub fn lan_file_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// 启动清理残留传输工件（契约 5.5；只删本功能命名的 sidecar / `.tmp`）。
+fn cleanup_stale_transfer_artifacts(app: &AppHandle) {
+    let Ok(data_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let dir = data_dir.join("lanfile");
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let artifacts: Vec<svc::TransferArtifact> = rd
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let mtime = e
+                .metadata()
+                .ok()?
+                .modified()
+                .ok()?
+                .duration_since(UNIX_EPOCH)
+                .ok()?
+                .as_millis() as u64;
+            Some(svc::TransferArtifact {
+                name,
+                mtime_ms: mtime,
+            })
+        })
+        .collect();
+    for name in svc::stale_transfer_artifacts(&artifacts, now_ms(), RESUME_WINDOW) {
+        match std::fs::remove_file(dir.join(&name)) {
+            Ok(()) => log::info!("lan_file: cleaned stale artifact {name}"),
+            Err(e) => log::debug!("lan_file: clean {name} failed: {e}"),
+        }
+    }
+}
+
 /// 托盘开关：设置并持久化，emit settings-updated（契约 5.1）。
 fn set_enabled_from_tray(app: &AppHandle, enabled: bool) -> Result<bool, String> {
     set_enabled_impl(app, enabled)?;
@@ -299,6 +343,12 @@ pub fn set_enabled_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
     if cancel_task {
         cancel_active(app, "disabled");
     }
+    // 关闭 → 尽力发撤销公告；开启 → 立即重新公告（契约 5.1/5.2）
+    if enabled {
+        publish_announce(app);
+    } else {
+        revoke_announce(app);
+    }
     let _ = app.emit(
         SETTINGS_UPDATED_EVENT,
         serde_json::json!({ "fileShare": enabled }),
@@ -307,7 +357,7 @@ pub fn set_enabled_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// 发布本机公告（启动 / 周期 / 发现新对端后补发）。
+/// 发布本机公告（启动 / 周期 / 发现新对端后补发）。总开关关闭时不公告（契约 5.1）。
 pub fn publish_announce(app: &AppHandle) {
     let (enabled, port, self_pid, terminal, fingerprint) = {
         let Some(shared) = shared() else { return };
@@ -323,6 +373,9 @@ pub fn publish_announce(app: &AppHandle) {
             g.fingerprint.clone(),
         )
     };
+    if !enabled {
+        return;
+    }
     let Some(port) = port else { return };
     // caps：桌面 = file + img（移动端 init 传入仅 img，见 lib.rs；桌面恒二者）
     let caps = if cfg!(desktop) {
@@ -337,19 +390,81 @@ pub fn publish_announce(app: &AppHandle) {
         tcp_port: port,
         fingerprint,
         caps,
+        ts: now_ms(),
     };
     let Ok(bytes) = serde_json::to_vec(&announce) else {
         return;
     };
-    let _ = enabled; // 公告照常发布（关闭仅停数据面 + 拒收），对端展示用 caps 判断
+    publish_announce_bytes(app, &bytes, port);
+}
+
+/// 尽力发撤销公告（关闭开关 / 退出时；`caps` 为空 = 撤销，契约 5.2）。
+///
+/// 发不出去也无妨：接收侧 12 分钟 TTL 自然驱逐。
+pub fn revoke_announce(app: &AppHandle) {
+    let Some(shared) = shared() else { return };
+    let (self_pid, terminal, fingerprint, port) = {
+        let g = shared.lock().unwrap();
+        (
+            g.self_peer_id.clone(),
+            g.terminal_name.clone(),
+            g.fingerprint.clone(),
+            g.tcp_port.unwrap_or(0),
+        )
+    };
+    let announce = Announce {
+        v: ANNOUNCE_VERSION.to_string(),
+        peer_id: self_pid,
+        terminal,
+        tcp_port: port,
+        fingerprint,
+        caps: Vec::new(), // 撤销标记
+        ts: now_ms(),
+    };
+    let Ok(bytes) = serde_json::to_vec(&announce) else {
+        return;
+    };
+    publish_announce_bytes(app, &bytes, port);
+    log::info!("lan_file: revoke announce published (caps empty)");
+}
+
+fn publish_announce_bytes(app: &AppHandle, bytes: &[u8], port: u16) {
     let state = app.state::<AppState>();
     let node = state.peer_node.lock().unwrap();
     if let Some(node) = node.as_ref() {
-        node.publish(ANNOUNCE_TOPIC, bytes);
+        node.publish(ANNOUNCE_TOPIC, bytes.to_vec());
         log::debug!("lan_file: announce published (port={port})");
     } else {
         log::warn!("lan_file: peer_node not running, announce skipped");
     }
+}
+
+/// 公告最小间隔（**仅用于「收到对端公告后回发」这一条路径**的回声兜底）。
+const ANNOUNCE_MIN_INTERVAL_MS: u64 = 3_000;
+/// 上次公告时刻（unix 毫秒；0 = 从未）。
+static LAST_ANNOUNCE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 公告节流：**只**对「收到对端公告后回发自身公告」生效。
+///
+/// 注意不能给所有公告加节流——启动公告与「连接建立后立即补发」是发现的关键路径，
+/// 被节流吞掉会导致双方互不可见直到 5 分钟周期公告（真机实测）。
+fn announce_rate_ok() -> bool {
+    let now = now_ms();
+    let last = LAST_ANNOUNCE_MS.load(Ordering::SeqCst);
+    if now.saturating_sub(last) < ANNOUNCE_MIN_INTERVAL_MS {
+        return false;
+    }
+    LAST_ANNOUNCE_MS.store(now, Ordering::SeqCst);
+    true
+}
+
+/// 收到对端公告后回发自身公告（带回声节流；首次发现新对端时调用）。
+fn publish_announce_reply(app: &AppHandle) {
+    if !announce_rate_ok() {
+        log::debug!("lan_file: announce reply throttled");
+        return;
+    }
+    publish_announce(app);
 }
 
 /// 处理一条收到的公告（announcements 主题）。
@@ -370,20 +485,44 @@ pub fn handle_announce(app: &AppHandle, source: &str, data: &[u8]) {
         // source 即 gossipsub propagation_source（直连对端）——一致
     }
     let changed;
+    let newly_seen;
     {
         let Some(shared) = shared() else { return };
         let mut g = shared.lock().unwrap();
         if announce.peer_id == g.self_peer_id {
             return; // 自己的公告
         }
-        upsert_announce(&mut g.announces, announce, now_ms());
-        changed = true;
+        if svc::announce_is_stale(&g.announces, &announce) {
+            // 乱序旧公告（含旧实例的撤销公告）：忽略，避免误删已上线对端
+            log::debug!(
+                "lan_file: stale announce ignored (peer={} ts={})",
+                announce.peer_id,
+                announce.ts
+            );
+            return;
+        }
+        if svc::is_revoke_announce(&announce) {
+            // 撤销公告（对端关闭开关 / 退出）：从列表移除（契约 5.2）
+            changed = svc::remove_announce(&mut g.announces, &announce.peer_id);
+            newly_seen = false;
+            if changed {
+                log::info!("lan_file: peer {} revoked announce", announce.peer_id);
+            }
+        } else {
+            // 是否首次见到该对端（决定是否补发自身公告）
+            newly_seen = svc::announce_back_needed(&g.announces, &announce.peer_id);
+            upsert_announce(&mut g.announces, announce, now_ms());
+            changed = true;
+        }
     }
     if changed {
         let _ = app.emit(PEERS_UPDATED_EVENT, ());
-        // 发现新对端后补公告（等 gossipsub 订阅握手，复用 0.2.5 经验）：
-        // 简化为每次收到公告都补发一次自身公告（低频，5min TTL 内最多对端数 × 1）
-        publish_announce(app);
+    }
+    // 补发自身公告**仅限首次发现该对端**（契约 5.2「mDNS 发现新对端后补公告」）。
+    // 反例（真机实测到的严重 bug）：对每条收到的公告都补发 → 两端互相触发，
+    // gossipsub 每条消息的 seqno 不同、去重失效 → 公告回声风暴（每端数十条/秒）。
+    if newly_seen {
+        publish_announce_reply(app);
     }
 }
 
@@ -580,35 +719,46 @@ async fn handle_inbound(
     }
 }
 
-/// 取活跃任务槽（互斥占用，契约 5.3 单会话）。
+/// 取活跃任务槽（互斥占用，契约 5.3 单会话）；返回本会话的 epoch（释放时校验用）。
+///
+/// `preempt_same_id`：**续传重连**时允许顶掉同一 transferId 的旧会话——对端链路
+/// 停滞重连时，本端旧会话任务可能还阻塞在读里（数据面无帧级硬超时），
+/// 不顶掉就会把合法的续传请求拒成 `busy`（真机实测：卡顿恢复后传输直接失败）。
 fn try_occupy_session(
     transfer_id: &str,
     direction: &'static str,
     peer_id: &str,
     terminal_name: &str,
     cmd_tx: Sender<TaskCommand>,
-) -> bool {
-    let Some(shared) = shared() else { return false };
+    preempt_same_id: bool,
+) -> Option<u64> {
+    let shared = shared()?;
     let mut g = shared.lock().unwrap();
-    if g.active_transfer.is_some() {
-        return false;
+    if let Some(existing) = g.active_transfer.as_ref() {
+        if !(preempt_same_id && existing.transfer_id == transfer_id) {
+            return None;
+        }
+        log::info!("lan_file: preempting stale session for {transfer_id} (resume reconnect)");
     }
+    let epoch = SESSION_EPOCH.fetch_add(1, Ordering::SeqCst);
     g.active_transfer = Some(ActiveTask {
         transfer_id: transfer_id.to_string(),
         direction,
         peer_id: peer_id.to_string(),
         terminal_name: terminal_name.to_string(),
         cmd_tx,
+        epoch,
     });
-    true
+    Some(epoch)
 }
 
-fn release_session(transfer_id: &str) {
+/// 释放会话槽（**仅当 epoch 匹配**：避免被顶掉的旧任务回来误清新会话的槽）。
+fn release_session(transfer_id: &str, epoch: u64) {
     if let Some(shared) = shared() {
         let mut g = shared.lock().unwrap();
         if g.active_transfer
             .as_ref()
-            .map(|t| t.transfer_id == transfer_id)
+            .map(|t| t.transfer_id == transfer_id && t.epoch == epoch)
             .unwrap_or(false)
         {
             g.active_transfer = None;
@@ -616,9 +766,46 @@ fn release_session(transfer_id: &str) {
     }
 }
 
-/// 通知前端活跃任务结束（idle 快照）。
-fn emit_idle(app: &AppHandle, direction: &str) {
+/// 通知前端回到空闲（`transferId` 省略）。任务进入终态时**不发**（终态快照停留展示），
+/// 仅用于任务未能启动（运行时/线程失败）等无终态路径，避免前端卡住一张假卡片。
+pub fn emit_idle(app: &AppHandle, direction: &str) {
     emit_transfer(app, &idle_snapshot(direction));
+}
+
+/// 终态快照参数（done / failed / cancelled / rejected）。
+///
+/// 契约 5.3：任务进入终态后**停留展示**（失败可重试、接收完成可打开所在位置），
+/// 不再紧跟 idle 快照（idle 会立刻抹掉卡片，前端只见「点一下什么都没了」）。
+struct TerminalSnapshot<'a> {
+    transfer_id: &'a str,
+    direction: &'a str,
+    peer_id: &'a str,
+    terminal_name: &'a str,
+    state: TransferState,
+    files: Vec<TransferFileInfo>,
+    total_bytes: u64,
+    transferred_bytes: u64,
+    saved_paths: Option<Vec<String>>,
+    error: Option<String>,
+}
+
+fn emit_terminal(app: &AppHandle, s: TerminalSnapshot<'_>) {
+    emit_transfer(
+        app,
+        &LanFileTransfer {
+            transfer_id: Some(s.transfer_id.to_string()),
+            direction: s.direction.to_string(),
+            peer_id: Some(s.peer_id.to_string()),
+            terminal_name: Some(s.terminal_name.to_string()),
+            state: s.state,
+            files: s.files,
+            total_bytes: s.total_bytes,
+            transferred_bytes: s.transferred_bytes,
+            bytes_per_sec: 0.0,
+            saved_paths: s.saved_paths,
+            error: s.error.map(|code| TransferError { code, params: None }),
+        },
+    );
 }
 
 /// 用户显式取消（任一侧）：任务通道 Cancel + 墓碑 + 清理（契约 5.5）。
@@ -761,6 +948,11 @@ pub fn pending_offer_peer(transfer_id: &str) -> Option<(String, String)> {
         .map(|p| (p.peer_id.clone(), p.terminal_name.clone()))
 }
 
+/// 移除待决表项（超时 / 任务结束的兜底清理；决定已送达时表项已被 `resolve_offer` 移除）。
+pub fn unregister_pending_offer(transfer_id: &str) {
+    pending_offers().lock().unwrap().remove(transfer_id);
+}
+
 /// 送达决定（accept / reject）；移除待决表项。
 pub fn resolve_offer(transfer_id: &str, cmd: TaskCommand) {
     let tx = pending_offers()
@@ -773,12 +965,23 @@ pub fn resolve_offer(transfer_id: &str, cmd: TaskCommand) {
     }
 }
 
-/// 用户取消：定向活跃任务（发送侧 Cancel 帧 / 接收侧墓碑由任务内处理）。
-pub fn cancel_transfer(transfer_id: &str) {
-    // 待决提议取消
+/// 用户取消（契约 5.5：显式取消 = 永久终止）。
+///
+/// 三条路径，按「当前任务形态」处理——**任何一条都必须让前端卡片收束**，
+/// 否则用户点「取消传输」会看到「命令成功但界面毫无反应」（真机实测）：
+/// 1. 待决提议（接收方在等用户决定）→ 命令通道投递 Cancel；
+/// 2. 活跃任务（发送/接收中）→ 命令通道投递 Cancel（任务内发 Cancel 帧 / 写墓碑）；
+/// 3. 任务已随连接结束退出但 **sidecar 还在续传窗口内**（卡片显示 resuming）→
+///    本函数直接写墓碑、删 `.tmp`、删 sidecar，并推终态快照；
+/// 4. 全都没有（事件丢失导致的残留卡片）→ 推一个 cancelled 快照收束 UI。
+pub fn cancel_transfer(app: &AppHandle, transfer_id: &str) {
+    if transfer_id.is_empty() {
+        return;
+    }
+    // 1) 待决提议
     resolve_offer(transfer_id, TaskCommand::Cancel);
-    // 活跃任务取消
-    let tx = {
+    // 2) 活跃任务
+    let active = {
         let Some(shared) = shared() else { return };
         let g = shared.lock().unwrap();
         g.active_transfer
@@ -786,9 +989,52 @@ pub fn cancel_transfer(transfer_id: &str) {
             .filter(|t| t.transfer_id == transfer_id)
             .map(|t| t.cmd_tx.clone())
     };
-    if let Some(tx) = tx {
+    if let Some(tx) = active {
         let _ = tx.send(TaskCommand::Cancel);
+        log::info!("lan_file: cancel delivered to active task {transfer_id}");
+        return;
     }
+    // 3) 续传窗口内的接收侧残留（任务已退出，只有 sidecar/.tmp）
+    let data_dir = app.path().app_data_dir().unwrap_or_default();
+    let inbox_dir = data_dir.join("lanfile");
+    if let Some(meta) = load_sidecar(&inbox_dir, transfer_id).unwrap_or(None) {
+        for f in &meta.files {
+            remove_tmp_file(&inbox_dir, &f.tmp_name);
+        }
+        let _ = remove_sidecar(&inbox_dir, transfer_id);
+        let files: Vec<TransferFileInfo> = meta
+            .files
+            .iter()
+            .map(|f| TransferFileInfo {
+                name: sanitize_filename(&f.name),
+                size: 0,
+                transferred_bytes: f.received_bytes,
+                status: FileStatus::Transferring,
+            })
+            .collect();
+        let transferred: u64 = meta.files.iter().map(|f| f.received_bytes).sum();
+        emit_terminal(
+            app,
+            TerminalSnapshot {
+                transfer_id,
+                direction: "receive",
+                peer_id: &meta.peer_id,
+                terminal_name: &peer_terminal(&meta.peer_id),
+                state: TransferState::Cancelled,
+                files,
+                total_bytes: transferred,
+                transferred_bytes: transferred,
+                saved_paths: None,
+                error: None,
+            },
+        );
+        notify_app(app, NotifyLevel::Info, err::CANCELLED);
+        log::info!("lan_file: cancelled resumable transfer {transfer_id} (sidecar cleaned)");
+        return;
+    }
+    // 4) 无任务无 sidecar：卡片可能是漏事件残留 → 推空闲收束
+    log::info!("lan_file: cancel for inactive transfer {transfer_id} (card resolved)");
+    emit_transfer(app, &idle_snapshot("send"));
 }
 
 /// 状态快照（getLanFileStatus 响应）。
@@ -861,22 +1107,13 @@ pub async fn send_task(
         let trusted = g.settings.is_trusted(&peer_id);
         (entry.announce.terminal.clone(), trusted)
     };
-    if !try_occupy_session(
-        &transfer_id,
-        "send",
-        &peer_id,
-        &terminal_name,
-        cmd_tx.clone(),
-    ) {
-        return Err(err::BUSY.into());
-    }
-
+    // dial 地址：IP 来自 PeerConnected 学习表（mdns multiaddr），端口来自公告。
+    // 注意必须在占会话槽**之前**解析——失败即返回，否则槽位泄漏（永久 busy）。
     let addr = {
         let Some(shared) = shared() else {
             return Err("lan-file not initialized".into());
         };
         let g = shared.lock().unwrap();
-        // IP 来自 PeerConnected 学习表（mdns multiaddr），端口来自公告
         let ip = peer_addr(&peer_id).ok_or_else(|| err::PEER_NOT_FOUND.to_string())?;
         let port = find_announce(&g.announces, &peer_id)
             .map(|a| a.tcp_port)
@@ -884,23 +1121,86 @@ pub async fn send_task(
         format!("{ip}:{port}")
     };
 
-    let result = send_task_inner(
+    let Some(epoch) = try_occupy_session(
+        &transfer_id,
+        "send",
+        &peer_id,
+        &terminal_name,
+        cmd_tx.clone(),
+        false,
+    ) else {
+        return Err(err::BUSY.into());
+    };
+    // 立即推 offering 快照：dial 可能失败并退避重试（最多 63s），
+    // 期间前端必须有卡片可看（否则「点了发送什么都没发生」）。
+    emit_transfer(
+        &app,
+        &progress_snapshot(
+            &transfer_id,
+            "send",
+            &peer_id,
+            &terminal_name,
+            &metas,
+            &vec![0; metas.len()],
+            total,
+            0.0,
+            TransferState::Offering,
+            None,
+        ),
+    );
+
+    let (result, transferred) = send_task_inner(
         app.clone(),
         signing,
-        self_peer_id,
+        self_peer_id.clone(),
+        peer_id.clone(),
+        terminal_name.clone(),
         addr,
         paths,
-        metas,
+        metas.clone(),
         total,
         transfer_id.clone(),
         cmd_rx,
     )
     .await;
 
-    release_session(&transfer_id);
-    emit_idle(&app, "send");
+    release_session(&transfer_id, epoch);
+    // 终态快照（契约 5.3：done 发送侧摘要 / failed·cancelled·rejected 停留展示可重试）
+    let (state, error_code) = match &result {
+        Ok(()) => (TransferState::Done, None),
+        Err(e) => {
+            let peer_cancel = e.starts_with(svc::PEER_CANCEL_MARK);
+            let code = svc::stable_error_code(e);
+            let err_field = if code == err::CANCELLED && !peer_cancel {
+                // 本地取消：状态已表达，不显示「对方取消了传输」
+                None
+            } else {
+                Some(code.clone())
+            };
+            (svc::send_terminal_state(&code), err_field)
+        }
+    };
+    emit_terminal(
+        &app,
+        TerminalSnapshot {
+            transfer_id: &transfer_id,
+            direction: "send",
+            peer_id: &peer_id,
+            terminal_name: &terminal_name,
+            state,
+            files: send_files_snapshot(&metas, &transferred, result.is_ok()),
+            total_bytes: total,
+            transferred_bytes: if result.is_ok() {
+                total
+            } else {
+                total_progress(&metas, &transferred)
+            },
+            saved_paths: None,
+            error: error_code.clone(),
+        },
+    );
     match &result {
-        Ok(_) => {
+        Ok(()) => {
             notify_app(&app, NotifyLevel::Success, "lan_file.done");
         }
         Err(e) if e.contains(err::CANCELLED) => {
@@ -908,11 +1208,46 @@ pub async fn send_task(
         }
         Err(e) => {
             log::warn!("lan_file: send failed: {e}");
-            notify_app(&app, NotifyLevel::Warning, err::TRANSFER_FAILED);
+            notify_app(
+                &app,
+                NotifyLevel::Warning,
+                &error_code.unwrap_or_else(|| err::TRANSFER_FAILED.to_string()),
+            );
         }
     }
     let _ = peer_trusted;
-    result
+    result.map(|_| vec![])
+}
+
+/// 发送侧文件进度快照（终态卡展示用）。
+fn send_files_snapshot(
+    metas: &[OfferFileInfo],
+    transferred: &[u64],
+    all_done: bool,
+) -> Vec<TransferFileInfo> {
+    metas
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let done = if all_done {
+                m.size
+            } else {
+                transferred.get(i).copied().unwrap_or(0).min(m.size)
+            };
+            TransferFileInfo {
+                name: m.name.clone(),
+                size: m.size,
+                transferred_bytes: done,
+                status: if done >= m.size {
+                    FileStatus::Done
+                } else if done > 0 {
+                    FileStatus::Transferring
+                } else {
+                    FileStatus::Pending
+                },
+            }
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -920,24 +1255,60 @@ async fn send_task_inner(
     app: AppHandle,
     signing: ed25519_dalek::SigningKey,
     self_peer_id: String,
+    peer_id: String,
+    terminal_name: String,
     addr: String,
     paths: Vec<String>,
     metas: Vec<OfferFileInfo>,
     total: u64,
     transfer_id: String,
     cmd_rx: Receiver<TaskCommand>,
-) -> Result<Vec<String>, String> {
-    let mut attempt: u32 = 0u32;
-    let saved: Vec<String> = Vec::new();
+) -> (Result<(), String>, Vec<u64>) {
     let mut transferred: Vec<u64> = vec![0; metas.len()];
+    let result = send_loop(
+        app,
+        signing,
+        self_peer_id,
+        peer_id,
+        terminal_name,
+        addr,
+        paths,
+        metas,
+        total,
+        transfer_id,
+        cmd_rx,
+        &mut transferred,
+    )
+    .await;
+    (result, transferred)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_loop(
+    app: AppHandle,
+    signing: ed25519_dalek::SigningKey,
+    self_peer_id: String,
+    peer_id: String,
+    terminal_name: String,
+    addr: String,
+    paths: Vec<String>,
+    metas: Vec<OfferFileInfo>,
+    total: u64,
+    transfer_id: String,
+    cmd_rx: Receiver<TaskCommand>,
+    transferred: &mut Vec<u64>,
+) -> Result<(), String> {
+    let mut attempt: u32 = 0u32;
 
     // 任务快照推送（节流 ≤4/s）
     let mut rate = RateEstimator::new();
     let mut last_emit = std::time::Instant::now() - Duration::from_secs(1);
 
     loop {
-        // 占位：重连循环在 dial 失败路径处理
-        let connect = SecureSession::connect(&addr, &signing, &self_peer_id).await;
+        // 每次（重）连都重新解析对端地址：接收方重启会换动态端口，而 peerId 才是身份
+        // （契约 5.2「重启换端口可接受」）。用首次解析的地址重连会永久 dial 失败。
+        let target = resolve_peer_addr(&peer_id).unwrap_or_else(|| addr.clone());
+        let connect = SecureSession::connect(&target, &signing, &self_peer_id).await;
         let (mut session, _peer) = match connect {
             Ok(v) => v,
             Err(SessionError::Io(_e)) => {
@@ -947,7 +1318,27 @@ async fn send_task_inner(
                 {
                     return Err(err::TRANSFER_FAILED.into());
                 }
-                tokio::time::sleep(retry_delay(attempt)).await;
+                // 退避期间给前端 resuming 反馈（契约 F4 琥珀横幅「网络中断，等待恢复…」）
+                emit_transfer(
+                    &app,
+                    &progress_snapshot(
+                        &transfer_id,
+                        "send",
+                        &peer_id,
+                        &terminal_name,
+                        &metas,
+                        transferred,
+                        total,
+                        0.0,
+                        TransferState::Resuming,
+                        None,
+                    ),
+                );
+                // 退避期间**轮询取消**（分片睡眠）：否则用户点「取消传输」要等到
+                // 退避结束（最长 32s）才有反应，观感就是「点了没反应」（真机实测）。
+                if wait_with_cancel(&cmd_rx, retry_delay(attempt)).await {
+                    return Err(err::CANCELLED.into());
+                }
                 attempt += 1;
                 continue;
             }
@@ -986,6 +1377,26 @@ async fn send_task_inner(
         if let Err(e) = session.send_json(&initial).await {
             return Err(format!("{}: {e}", err::TRANSFER_FAILED));
         }
+        // 提议已发出：offering（首连）/ resuming（续传）快照（契约 5.3 状态机）
+        emit_transfer(
+            &app,
+            &progress_snapshot(
+                &transfer_id,
+                "send",
+                &peer_id,
+                &terminal_name,
+                &metas,
+                transferred,
+                total,
+                0.0,
+                if is_resume {
+                    TransferState::Resuming
+                } else {
+                    TransferState::Offering
+                },
+                None,
+            ),
+        );
 
         // 命令轮询（cancel）+ 应答等待（60s 提议窗口）
         let reply = wait_reply(&mut session, &cmd_rx, OFFER_TIMEOUT).await;
@@ -996,6 +1407,10 @@ async fn send_task_inner(
                 session.send_cancel("user").await;
                 return Err(err::CANCELLED.into());
             }
+            Err(WaitError::PeerCancelled) => {
+                // 对端显式取消（等待应答期间）：不再续传，直接终态
+                return Err(svc::PEER_CANCEL_MARK.into());
+            }
             Err(WaitError::Timeout) => {
                 session.send_cancel("offer_timeout").await;
                 return Err(err::OFFER_TIMEOUT.into());
@@ -1004,6 +1419,21 @@ async fn send_task_inner(
         };
         match reply {
             ReplyFrame::Reject { code } => {
+                // 续传时被拒 busy：对端旧会话可能还占着槽（它的无数据看门狗最多 60s 才放行）
+                // → 当作可重试的链路问题，退避后再来，而不是直接判失败。
+                if is_resume && code == err::BUSY {
+                    log::warn!(
+                        "lan_file: resume rejected busy (peer session not freed yet), retry attempt={attempt}"
+                    );
+                    attempt += 1;
+                    if total_elapsed_exceeded(attempt) {
+                        return Err(err::BUSY.into());
+                    }
+                    if wait_with_cancel(&cmd_rx, retry_delay(attempt - 1)).await {
+                        return Err(err::CANCELLED.into());
+                    }
+                    continue;
+                }
                 // 对端拒绝：磁盘满 / 忙 / 已取消墓碑等（契约 5.5）
                 return Err(code);
             }
@@ -1013,11 +1443,27 @@ async fn send_task_inner(
             } => {
                 if !fresh {
                     if let Some(offsets) = per_file_received_bytes {
-                        transferred = offsets;
+                        *transferred = offsets;
                     }
                 }
             }
         }
+        // 对端已接受：立即推一次 transferring（小文件可能不足一个进度节流周期）
+        emit_transfer(
+            &app,
+            &progress_snapshot(
+                &transfer_id,
+                "send",
+                &peer_id,
+                &terminal_name,
+                &metas,
+                transferred,
+                total,
+                0.0,
+                TransferState::Transferring,
+                None,
+            ),
+        );
 
         // 逐文件传输（串行）
         let mut file_result: Result<(), String> = Ok(());
@@ -1034,8 +1480,10 @@ async fn send_task_inner(
                 &mut rate,
                 &mut last_emit,
                 &transfer_id,
+                &peer_id,
+                &terminal_name,
                 &metas,
-                &mut transferred,
+                transferred,
                 total,
             )
             .await;
@@ -1047,10 +1495,19 @@ async fn send_task_inner(
         match file_result {
             Ok(()) => {
                 // 全部完成
-                return Ok(saved);
+                return Ok(());
             }
             Err(e) if e == err::CANCELLED => {
                 session.send_cancel("user").await;
+                return Err(e);
+            }
+            Err(e) if e == svc::PEER_CANCEL_MARK => {
+                // 对端取消：永久终止，**不进续传窗口**
+                return Err(e);
+            }
+            Err(e) if !e.starts_with(err::TRANSFER_FAILED) => {
+                // 协议/语义级失败（对端拒绝、磁盘满、完整性不符、源文件不可读…）：
+                // 重连也不会变好，直接终态（真机实测：完整性失败曾触发无限续传循环）
                 return Err(e);
             }
             Err(e) => {
@@ -1063,10 +1520,43 @@ async fn send_task_inner(
                 if total_elapsed_exceeded(attempt) {
                     return Err(e);
                 }
-                tokio::time::sleep(retry_delay(attempt - 1)).await;
+                // 退避期间 resuming 反馈（契约 F4）
+                emit_transfer(
+                    &app,
+                    &progress_snapshot(
+                        &transfer_id,
+                        "send",
+                        &peer_id,
+                        &terminal_name,
+                        &metas,
+                        transferred,
+                        total,
+                        0.0,
+                        TransferState::Resuming,
+                        None,
+                    ),
+                );
+                if wait_with_cancel(&cmd_rx, retry_delay(attempt - 1)).await {
+                    return Err(err::CANCELLED.into());
+                }
                 continue;
             }
         }
+    }
+}
+
+/// 退避等待：分片睡眠并轮询取消；返回 true = 收到取消。
+async fn wait_with_cancel(cmd_rx: &Receiver<TaskCommand>, wait: Duration) -> bool {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if let Ok(TaskCommand::Cancel) = cmd_rx.try_recv() {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        let remain = deadline.saturating_duration_since(std::time::Instant::now());
+        tokio::time::sleep(remain.min(Duration::from_millis(100))).await;
     }
 }
 
@@ -1088,6 +1578,8 @@ async fn send_file_stream(
     rate: &mut RateEstimator,
     last_emit: &mut std::time::Instant,
     transfer_id: &str,
+    peer_id: &str,
+    terminal_name: &str,
     metas: &[OfferFileInfo],
     transferred: &mut [u64],
     total: u64,
@@ -1104,7 +1596,8 @@ async fn send_file_stream(
         .map_err(|_| err::FILE_UNREADABLE.to_string())?;
 
     let mut sent = skip;
-    let mut seq = 0u32;
+    // seq = 该字节位置所在的块号（续传时从同号块继续，与接收方期望的 AAD 一致）
+    let mut seq = svc::chunk_seq_at(skip);
     let mut buf = vec![0u8; CHUNK_SIZE];
     rate.reset(sent, now_ms());
     while sent < meta.size {
@@ -1113,16 +1606,49 @@ async fn send_file_stream(
             return Err(err::CANCELLED.into());
         }
         let want = buf.len().min((meta.size - sent) as usize);
+        let read_t0 = std::time::Instant::now();
         let n = file
             .read(&mut buf[..want])
             .map_err(|_| err::FILE_UNREADABLE.to_string())?;
         if n == 0 {
             return Err(err::FILE_UNREADABLE.into());
         }
-        session
-            .send_chunk(file_index, seq, &buf[..n])
-            .await
-            .map_err(|e| e.to_string())?;
+        if read_t0.elapsed() > Duration::from_secs(1) {
+            log::warn!(
+                "lan_file: disk read slow ({}ms) at {sent}B of {}",
+                read_t0.elapsed().as_millis(),
+                meta.size
+            );
+        }
+        // 写块：带**停滞判定**——零进展 30s 说明链路已塌（丢包使 cwnd 塌到 2 段、
+        // RTT 秒级），此时按断线处理（重连 + 断点续传）远比干等快。
+        let write_t0 = std::time::Instant::now();
+        match tokio::time::timeout(
+            svc::CHUNK_STALL_TIMEOUT,
+            session.send_chunk(file_index, seq, &buf[..n]),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(session_err_to_task(e)),
+            Err(_) => {
+                log::warn!(
+                    "lan_file: send stalled >{}s at {sent}B (peer/link zero progress), reconnect+resume",
+                    svc::CHUNK_STALL_TIMEOUT.as_secs()
+                );
+                return Err(format!(
+                    "{}: send stalled >{}s at {sent}B",
+                    err::TRANSFER_FAILED,
+                    svc::CHUNK_STALL_TIMEOUT.as_secs()
+                ));
+            }
+        }
+        if write_t0.elapsed() > Duration::from_secs(2) {
+            log::warn!(
+                "lan_file: chunk write slow ({}ms) at {sent}B",
+                write_t0.elapsed().as_millis()
+            );
+        }
         sent += n as u64;
         seq += 1;
         transferred[file_index as usize] = sent;
@@ -1132,7 +1658,18 @@ async fn send_file_stream(
             let bps = rate.observe(total_progress(metas, transferred), now_ms());
             emit_transfer(
                 app,
-                &progress_snapshot(transfer_id, "send", metas, transferred, total, bps, None),
+                &progress_snapshot(
+                    transfer_id,
+                    "send",
+                    peer_id,
+                    terminal_name,
+                    metas,
+                    transferred,
+                    total,
+                    bps,
+                    TransferState::Transferring,
+                    None,
+                ),
             );
         }
     }
@@ -1148,9 +1685,9 @@ async fn send_file_stream(
     session
         .send_json(&EndFrame { sha256: vec![hex] })
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(session_err_to_task)?;
     // Ack（对账结论）
-    let ack: AckFrame = session.recv_json().await.map_err(|e| e.to_string())?;
+    let ack: AckFrame = session.recv_json().await.map_err(session_err_to_task)?;
     if !ack.ok {
         return Err(ack.code.unwrap_or_else(|| err::INTEGRITY_MISMATCH.into()));
     }
@@ -1170,18 +1707,21 @@ fn total_progress(metas: &[OfferFileInfo], transferred: &[u64]) -> u64 {
 fn progress_snapshot(
     transfer_id: &str,
     direction: &str,
+    peer_id: &str,
+    terminal_name: &str,
     metas: &[OfferFileInfo],
     transferred: &[u64],
     total: u64,
     bps: f64,
+    state: TransferState,
     error: Option<TransferError>,
 ) -> LanFileTransfer {
     LanFileTransfer {
         transfer_id: Some(transfer_id.to_string()),
         direction: direction.to_string(),
-        peer_id: None,
-        terminal_name: None,
-        state: TransferState::Transferring,
+        peer_id: Some(peer_id.to_string()),
+        terminal_name: Some(terminal_name.to_string()),
+        state,
         files: metas
             .iter()
             .enumerate()
@@ -1224,7 +1764,8 @@ async fn wait_reply(
         if remaining.is_zero() {
             return Err(WaitError::Timeout);
         }
-        // 收帧（短超时分片等待，兼顾取消轮询）
+        // 收帧（短超时分片等待，兼顾取消轮询）；
+        // 注：帧读取本身是取消安全的（`read_frame_buffered`），分片取消不会破坏帧流。
         match tokio::time::timeout(
             Duration::from_millis(200),
             session.recv_json::<ReplyFrame>(),
@@ -1232,6 +1773,7 @@ async fn wait_reply(
         .await
         {
             Ok(Ok(reply)) => return Ok(reply),
+            Ok(Err(SessionError::Cancelled(_))) => return Err(WaitError::PeerCancelled),
             Ok(Err(e)) => return Err(WaitError::Session(e)),
             Err(_) => continue, // 分片超时 → 继续轮询
         }
@@ -1240,8 +1782,17 @@ async fn wait_reply(
 
 enum WaitError {
     Cancelled,
+    PeerCancelled,
     Timeout,
     Session(SessionError),
+}
+
+/// 会话错误 → 任务错误串（对端取消用内部标记；其余带诊断细节）。
+fn session_err_to_task(e: SessionError) -> String {
+    match e {
+        SessionError::Cancelled(_reason) => svc::PEER_CANCEL_MARK.to_string(),
+        other => format!("{}: {other}", err::TRANSFER_FAILED),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1271,7 +1822,7 @@ async fn receive_interactive(
         None
     };
 
-    // 第二个新提议（非续传）→ 自动拒绝 busy（契约 5.3）
+    // 第二个新提议（非续传）→ 自动拒绝 busy（契约 5.3：本端 notify warning）
     if !is_resume {
         let occupied = shared()
             .map(|g| g.lock().unwrap().active_transfer.is_some())
@@ -1283,6 +1834,8 @@ async fn receive_interactive(
                 })
                 .await;
             session.shutdown().await;
+            log::info!("lan_file: second offer {transfer_id} auto-rejected (busy)");
+            notify_app(&app, NotifyLevel::Warning, err::BUSY);
             return Ok(());
         }
     }
@@ -1298,10 +1851,17 @@ async fn receive_interactive(
         return Ok(());
     }
 
-    // 会话占用（接收方也在交互会话槽）
+    // 会话占用（接收方也在交互会话槽）；续传允许顶掉同一 transferId 的陈旧会话
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<TaskCommand>();
     let cmd_rx = Arc::new(std::sync::Mutex::new(cmd_rx));
-    if !try_occupy_session(&transfer_id, "receive", &peer_id, &terminal_name, cmd_tx) {
+    let Some(epoch) = try_occupy_session(
+        &transfer_id,
+        "receive",
+        &peer_id,
+        &terminal_name,
+        cmd_tx.clone(),
+        is_resume,
+    ) else {
         let _ = session
             .send_json(&ReplyFrame::Reject {
                 code: err::BUSY.into(),
@@ -1309,7 +1869,7 @@ async fn receive_interactive(
             .await;
         session.shutdown().await;
         return Ok(());
-    }
+    };
 
     // 续传合法性
     let resume_offsets: Option<Vec<u64>> = sidecar.as_ref().and_then(|meta| {
@@ -1321,7 +1881,7 @@ async fn receive_interactive(
     });
     if is_resume && sidecar.is_none() {
         // 无 sidecar 的续传请求 → 拒绝（对端将任务失败）
-        release_session(&transfer_id);
+        release_session(&transfer_id, epoch);
         let _ = session
             .send_json(&ReplyFrame::Reject {
                 code: err::TRANSFER_FAILED.into(),
@@ -1333,7 +1893,7 @@ async fn receive_interactive(
     if let Some(meta) = sidecar.as_ref() {
         if meta.is_cancelled() {
             // 墓碑：取消 = 永久终止，不再续传（契约 5.5）
-            release_session(&transfer_id);
+            release_session(&transfer_id, epoch);
             let _ = session
                 .send_json(&ReplyFrame::Reject {
                     code: err::CANCELLED.into(),
@@ -1344,9 +1904,11 @@ async fn receive_interactive(
         }
     }
 
-    // emitting offer 事件（resumed 不发，契约 5.4/5.5）
+    // 提议到达（契约 5.4）：仅**陌生**终端需要人工确认；已信任终端免确认直接进入传输。
+    // 关键接线：陌生提议必须 `register_pending_offer`，否则 accept/reject 命令查表落空
+    // （历史 bug：面板点「接受」立刻报 lan_file.peer_not_found）。
     if !is_resume {
-        let (name_clash, known_minutes) = {
+        let (name_clash, known_minutes, trusted) = {
             let shared = shared();
             match shared {
                 Some(shared) => {
@@ -1358,33 +1920,32 @@ async fn receive_interactive(
                             .find(|e| e.announce.peer_id == peer_id)
                             .map(|e| now_ms().saturating_sub(e.last_seen_ms) / 60_000)
                             .unwrap_or(0),
+                        g.settings.is_trusted(&peer_id),
                     )
                 }
-                None => (false, 0),
+                None => (false, 0, false),
             }
         };
-        let offer = LanFileOffer {
-            transfer_id: transfer_id.clone(),
-            peer_id: peer_id.clone(),
-            terminal_name: terminal_name.clone(),
-            fingerprint,
-            name_clash,
-            files: files
-                .iter()
-                .map(|f| OfferFileInfo {
-                    name: sanitize_filename(&f.name),
-                    size: f.size,
-                })
-                .collect(),
-            total_bytes,
-            known_from_minutes: known_minutes,
-        };
-        let _ = app.emit(INCOMING_EVENT, &offer);
-        // 信任表内 → 自动放行（TOFU 免确认）；陌生 → 等用户 accept/reject（60s 超时自动拒）
-        let trusted = shared()
-            .map(|g| g.lock().unwrap().settings.is_trusted(&peer_id))
-            .unwrap_or(false);
         if !trusted {
+            let offer = LanFileOffer {
+                transfer_id: transfer_id.clone(),
+                peer_id: peer_id.clone(),
+                terminal_name: terminal_name.clone(),
+                fingerprint,
+                name_clash,
+                files: files
+                    .iter()
+                    .map(|f| OfferFileInfo {
+                        name: sanitize_filename(&f.name),
+                        size: f.size,
+                    })
+                    .collect(),
+                total_bytes,
+                known_from_minutes: known_minutes,
+            };
+            // 先注册待决提议，再 emit 事件（避免前端点击快于注册的竞态）
+            register_pending_offer(&transfer_id, &peer_id, &terminal_name, cmd_tx.clone());
+            let _ = app.emit(INCOMING_EVENT, &offer);
             // spawn_blocking：同步轮询用户决定（&Receiver 非 Sync 不能跨 .await）
             let rx = Arc::clone(&cmd_rx);
             let outcome = tokio::task::spawn_blocking(move || {
@@ -1393,46 +1954,93 @@ async fn receive_interactive(
             })
             .await
             .unwrap_or(UserDecision::Timeout);
+            unregister_pending_offer(&transfer_id);
             match outcome {
                 UserDecision::Accept => {
-                    // TOFU：写入信任表（契约 5.4）
+                    // TOFU：写入信任表（契约 5.4；命令层亦已写，此处兜底幂等）
                     let _ = trust_peer(&app, &peer_id, &terminal_name);
                 }
                 UserDecision::Reject => {
-                    release_session(&transfer_id);
+                    release_session(&transfer_id, epoch);
                     let _ = session
                         .send_json(&ReplyFrame::Reject {
                             code: err::REJECTED.into(),
                         })
                         .await;
                     session.shutdown().await;
-                    emit_idle(&app, "receive");
+                    emit_terminal(
+                        &app,
+                        TerminalSnapshot {
+                            transfer_id: &transfer_id,
+                            direction: "receive",
+                            peer_id: &peer_id,
+                            terminal_name: &terminal_name,
+                            state: TransferState::Rejected,
+                            files: recv_files_snapshot(&files, &vec![0; files.len()]),
+                            total_bytes,
+                            transferred_bytes: 0,
+                            saved_paths: None,
+                            error: Some(err::REJECTED.into()),
+                        },
+                    );
+                    notify_app(&app, NotifyLevel::Info, err::REJECTED);
                     return Ok(());
                 }
                 UserDecision::Timeout => {
-                    release_session(&transfer_id);
+                    release_session(&transfer_id, epoch);
                     let _ = session
                         .send_json(&ReplyFrame::Reject {
                             code: err::OFFER_TIMEOUT.into(),
                         })
                         .await;
                     session.shutdown().await;
-                    emit_idle(&app, "receive");
+                    emit_terminal(
+                        &app,
+                        TerminalSnapshot {
+                            transfer_id: &transfer_id,
+                            direction: "receive",
+                            peer_id: &peer_id,
+                            terminal_name: &terminal_name,
+                            state: TransferState::Failed,
+                            files: recv_files_snapshot(&files, &vec![0; files.len()]),
+                            total_bytes,
+                            transferred_bytes: 0,
+                            saved_paths: None,
+                            error: Some(err::OFFER_TIMEOUT.into()),
+                        },
+                    );
+                    notify_app(&app, NotifyLevel::Warning, err::OFFER_TIMEOUT);
                     return Ok(());
                 }
                 UserDecision::Cancel => {
                     user_cancel_receive(&app, &inbox_dir, &transfer_id, &peer_id, &files);
-                    release_session(&transfer_id);
+                    release_session(&transfer_id, epoch);
                     let _ = session.send_cancel("user").await;
-                    emit_idle(&app, "receive");
+                    emit_terminal(
+                        &app,
+                        TerminalSnapshot {
+                            transfer_id: &transfer_id,
+                            direction: "receive",
+                            peer_id: &peer_id,
+                            terminal_name: &terminal_name,
+                            state: TransferState::Cancelled,
+                            files: recv_files_snapshot(&files, &vec![0; files.len()]),
+                            total_bytes,
+                            transferred_bytes: 0,
+                            saved_paths: None,
+                            error: Some(err::CANCELLED.into()),
+                        },
+                    );
                     notify_app(&app, NotifyLevel::Info, err::CANCELLED);
                     return Ok(());
                 }
             }
+        } else {
+            log::debug!("lan_file: offer {transfer_id} from trusted peer {peer_id} auto-accepted");
         }
     } else if sidecar.is_none() {
         // 理论不可达（前面已拒）
-        release_session(&transfer_id);
+        release_session(&transfer_id, epoch);
         session.shutdown().await;
         return Ok(());
     }
@@ -1449,9 +2057,25 @@ async fn receive_interactive(
         },
     };
     if let Err(e) = session.send_json(&reply).await {
-        release_session(&transfer_id);
+        release_session(&transfer_id, epoch);
         return Err(e);
     }
+    // 接受后立即推 transferring（小文件可能不足一个进度节流周期，否则前端只见终态）
+    emit_transfer(
+        &app,
+        &recv_state_snapshot(
+            &transfer_id,
+            &peer_id,
+            &terminal_name,
+            &files,
+            &resume_offsets
+                .clone()
+                .unwrap_or_else(|| vec![0; files.len()]),
+            total_bytes,
+            TransferState::Transferring,
+            None,
+        ),
+    );
 
     // 准备落盘：净化文件名 + 重名去重 + sidecar
     let mut final_names: Vec<String> = Vec::with_capacity(files.len());
@@ -1496,15 +2120,51 @@ async fn receive_interactive(
     let _ = save_sidecar(&inbox_dir, &sidecar_meta);
 
     // 逐文件接收（串行；契约 5.3 多文件串行）
-    let mut transferred: Vec<u64> = vec![0; files.len()];
+    //
+    // `transferred` 必须以**续传偏移**为初值：否则续传会话把 `start` 当成 0，
+    // 对已有 `.tmp` 再次 append 整份文件（真机实测：50MB 文件涨到 55MB + 哈希对账必失败
+    // → 发送方误判可重试 → 无限续传循环）。
+    let mut transferred: Vec<u64> = resume_offsets
+        .clone()
+        .unwrap_or_else(|| vec![0; files.len()]);
     let mut saved_paths: Vec<String> = Vec::with_capacity(files.len());
     let mut rate = RateEstimator::new();
     let mut last_emit = std::time::Instant::now() - Duration::from_secs(1);
     let mut received_hashes: Vec<String> = Vec::with_capacity(files.len());
     let mut failed: Option<String> = None;
+    // 本地发起取消（用户点「取消传输」/ 关开关）——终态不显示「对方取消了传输」
+    let mut local_cancel = false;
     'outer: for (idx, file) in files.iter().enumerate() {
         let tmp_path = inbox_dir.join(tmp_name_for(&transfer_id, idx));
         let start = transferred[idx];
+        // 续传对齐（契约 5.5）：sidecar 每 250ms 落一次，而 `.tmp` 是连续写入的——
+        // 异常中断时 `.tmp` 往往比 sidecar 记录的偏移**更长**，直接 append 会整体错位
+        // （真机实测：文件 100% 传完却哈希对账失败、被丢弃）。故先按记录偏移截断。
+        if start > 0 {
+            let actual = std::fs::metadata(&tmp_path).map(|m| m.len()).unwrap_or(0);
+            if actual < start {
+                // 记录偏移 > 实际文件（数据丢失）→ 清理并失败，不再续传
+                log::warn!("lan_file: resume offset {start} > tmp size {actual}, discard partial");
+                remove_tmp_file(&inbox_dir, &tmp_name_for(&transfer_id, idx));
+                let _ = remove_sidecar(&inbox_dir, &transfer_id);
+                failed = Some(err::INTEGRITY_MISMATCH.into());
+                break 'outer;
+            }
+            if actual > start {
+                match std::fs::OpenOptions::new().write(true).open(&tmp_path) {
+                    Ok(f) => {
+                        if f.set_len(start).is_err() {
+                            failed = Some(err::STORAGE_ERROR.into());
+                            break 'outer;
+                        }
+                    }
+                    Err(e) => {
+                        failed = Some(format!("{}: {e}", err::STORAGE_ERROR));
+                        break 'outer;
+                    }
+                }
+            }
+        }
         let mut out = match std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -1517,41 +2177,133 @@ async fn receive_interactive(
             }
         };
         let mut hasher = sha2::Sha256::new();
-        // 续传：已收部分进哈希
+        // 续传：已收部分流式进哈希（大文件不能整块读进内存）
         if start > 0 {
-            if let Ok(bytes) = std::fs::read(&tmp_path) {
-                use sha2::Digest as _;
-                hasher.update(&bytes);
+            match std::fs::File::open(&tmp_path) {
+                Ok(mut f2) => {
+                    if std::io::copy(&mut f2, &mut hasher).is_err() {
+                        failed = Some(err::STORAGE_ERROR.into());
+                        break 'outer;
+                    }
+                }
+                Err(e) => {
+                    failed = Some(format!("{}: {e}", err::STORAGE_ERROR));
+                    break 'outer;
+                }
             }
         }
         let mut got = start;
-        let mut seq = (start / CHUNK_SIZE as u64) as u32;
+        // seq = 该字节位置所在的块号（与发送方 seek 后从同号块继续一致，AAD 绑定位置）
+        let mut seq = svc::chunk_seq_at(start);
         while got < file.size {
             // 取消侦测（cmd_rx 为 Arc<Mutex<Receiver>>）
             if let Ok(TaskCommand::Cancel) = cmd_rx.lock().unwrap().try_recv() {
                 failed = Some(err::CANCELLED.into());
+                local_cancel = true;
                 break 'outer;
             }
-            // 收 Chunk（AAD 绑定 fileIndex+seq）
-            let chunk = match session.recv_chunk(idx as u32, seq).await {
+            // 收 Chunk（AAD 绑定 fileIndex+seq）——分片等待并轮询取消：
+            // 数据面无帧级硬超时，对端静默时 recv 会一直阻塞，若只在块间轮询取消，
+            // 用户点「取消传输」将毫无反应（真机实测）。帧读取本身取消安全。
+            let wait_t0 = std::time::Instant::now();
+            let chunk = loop {
+                if let Ok(TaskCommand::Cancel) = cmd_rx.lock().unwrap().try_recv() {
+                    failed = Some(err::CANCELLED.into());
+                    local_cancel = true;
+                    break 'outer;
+                }
+                // 彻底收不到数据（远超发送侧停滞阈值）→ 判链路已死：
+                // 释放会话槽并保留 sidecar，让对端重连能立刻被接受（否则会被拒成 busy）。
+                if wait_t0.elapsed() > svc::RECV_DEAD_TIMEOUT {
+                    log::warn!(
+                        "lan_file: no data for {}s at {got}B/{} → treat link dead, wait for resume",
+                        wait_t0.elapsed().as_secs(),
+                        file.size
+                    );
+                    break Err(SessionError::Io("recv idle timeout".into()));
+                }
+                match tokio::time::timeout(
+                    Duration::from_millis(200),
+                    session.recv_chunk(idx as u32, seq),
+                )
+                .await
+                {
+                    Ok(r) => break r,
+                    Err(_) => continue, // 分片超时 → 继续轮询取消
+                }
+            };
+            // 卡顿定位：单块等待超阈值只记日志（不中断传输，链路慢但仍有进展）
+            if wait_t0.elapsed() > svc::RECV_STALL_LOG_THRESHOLD {
+                log::warn!(
+                    "lan_file: recv stall {}ms at {got}B/{} (peer link slow)",
+                    wait_t0.elapsed().as_millis(),
+                    file.size
+                );
+            }
+            let chunk = match chunk {
                 Ok(c) => c,
+                Err(SessionError::Cancelled(_reason)) => {
+                    // 对端显式取消（契约 5.5）：墓碑 + 删 .tmp，终态 cancelled，**不进续传窗口**
+                    use std::io::Write as _;
+                    let _ = out.flush();
+                    drop(out);
+                    user_cancel_receive(&app, &inbox_dir, &transfer_id, &peer_id, &files);
+                    release_session(&transfer_id, epoch);
+                    emit_terminal(
+                        &app,
+                        TerminalSnapshot {
+                            transfer_id: &transfer_id,
+                            direction: "receive",
+                            peer_id: &peer_id,
+                            terminal_name: &terminal_name,
+                            state: TransferState::Cancelled,
+                            files: recv_files_snapshot(&files, &transferred),
+                            total_bytes,
+                            transferred_bytes: total_bytes_recv(&files, &transferred),
+                            saved_paths: None,
+                            error: Some(err::CANCELLED.into()),
+                        },
+                    );
+                    notify_app(&app, NotifyLevel::Info, err::CANCELLED);
+                    return Ok(());
+                }
                 Err(_e) => {
-                    // 异常中断：sidecar 保留进 120s 窗口（契约 5.5）
-                    // 注：failed 在此路径不消费——直接走「窗口保留 + 静默等重连」出口
+                    // 异常中断：sidecar 保留进 120s 窗口（契约 5.5）——
+                    // 前端转 resuming 琥珀横幅；窗口内对端重连即续传，超窗由
+                    // `spawn_resume_expiry` 清理并落 failed(transfer_failed)。
                     use std::io::Write as _;
                     let _ = out.flush();
                     sidecar_meta.files[idx].received_bytes = got;
                     let _ = save_sidecar(&inbox_dir, &sidecar_meta);
-                    release_session(&transfer_id);
-                    notify_app(&app, NotifyLevel::Warning, err::TRANSFER_FAILED);
-                    emit_idle(&app, "receive");
+                    release_session(&transfer_id, epoch);
+                    emit_transfer(
+                        &app,
+                        &recv_state_snapshot(
+                            &transfer_id,
+                            &peer_id,
+                            &terminal_name,
+                            &files,
+                            &transferred,
+                            total_bytes,
+                            TransferState::Resuming,
+                            None,
+                        ),
+                    );
+                    spawn_resume_expiry(app.clone(), inbox_dir.clone(), transfer_id.clone());
                     return Ok(()); // 任务级失败已通知；会话错误不回传
                 }
             };
             use std::io::Write as _;
+            let write_t0 = std::time::Instant::now();
             if out.write_all(&chunk).is_err() {
                 failed = Some(err::STORAGE_ERROR.into());
                 break 'outer;
+            }
+            if write_t0.elapsed() > Duration::from_secs(1) {
+                log::warn!(
+                    "lan_file: disk write slow ({}ms) at {got}B (av scan / disk busy?)",
+                    write_t0.elapsed().as_millis()
+                );
             }
             use sha2::Digest as _;
             hasher.update(&chunk);
@@ -1586,6 +2338,10 @@ async fn receive_interactive(
         // End 帧对账（全文件重哈希）
         let end: EndFrame = match session.recv_json().await {
             Ok(e) => e,
+            Err(SessionError::Cancelled(_)) => {
+                failed = Some(err::CANCELLED.into());
+                break;
+            }
             Err(e) => {
                 failed = Some(format!("{}: {e}", err::TRANSFER_FAILED));
                 break;
@@ -1604,28 +2360,23 @@ async fn receive_interactive(
                     code: Some(err::INTEGRITY_MISMATCH.into()),
                 })
                 .await;
-            release_session(&transfer_id);
-            emit_transfer(
+            release_session(&transfer_id, epoch);
+            emit_terminal(
                 &app,
-                &LanFileTransfer {
-                    transfer_id: Some(transfer_id.clone()),
-                    direction: "receive".into(),
-                    peer_id: Some(peer_id.clone()),
-                    terminal_name: Some(terminal_name.clone()),
+                TerminalSnapshot {
+                    transfer_id: &transfer_id,
+                    direction: "receive",
+                    peer_id: &peer_id,
+                    terminal_name: &terminal_name,
                     state: TransferState::Failed,
                     files: recv_files_snapshot(&files, &transferred),
                     total_bytes,
                     transferred_bytes: total_bytes_recv(&files, &transferred),
-                    bytes_per_sec: 0.0,
                     saved_paths: None,
-                    error: Some(TransferError {
-                        code: err::INTEGRITY_MISMATCH.into(),
-                        params: None,
-                    }),
+                    error: Some(err::INTEGRITY_MISMATCH.into()),
                 },
             );
             notify_app(&app, NotifyLevel::Error, err::INTEGRITY_MISMATCH);
-            emit_idle(&app, "receive");
             return Ok(());
         }
         received_hashes.push(local_hex);
@@ -1648,60 +2399,71 @@ async fn receive_interactive(
     }
 
     // 任务收尾
-    release_session(&transfer_id);
+    release_session(&transfer_id, epoch);
     if failed.is_some() && failed.as_deref() == Some(err::CANCELLED) {
         // 用户取消：墓碑 + 删 tmp（契约 5.5）
         user_cancel_receive(&app, &inbox_dir, &transfer_id, &peer_id, &files);
         session.send_cancel("user").await;
-        emit_idle(&app, "receive");
+        emit_terminal(
+            &app,
+            TerminalSnapshot {
+                transfer_id: &transfer_id,
+                direction: "receive",
+                peer_id: &peer_id,
+                terminal_name: &terminal_name,
+                state: TransferState::Cancelled,
+                files: recv_files_snapshot(&files, &transferred),
+                total_bytes,
+                transferred_bytes: total_bytes_recv(&files, &transferred),
+                saved_paths: None,
+                error: if local_cancel {
+                    None
+                } else {
+                    Some(err::CANCELLED.into())
+                },
+            },
+        );
         notify_app(&app, NotifyLevel::Info, err::CANCELLED);
         return Ok(());
     }
     if let Some(err_code) = failed {
-        emit_transfer(
+        emit_terminal(
             &app,
-            &LanFileTransfer {
-                transfer_id: Some(transfer_id.clone()),
-                direction: "receive".into(),
-                peer_id: Some(peer_id.clone()),
-                terminal_name: Some(terminal_name.clone()),
+            TerminalSnapshot {
+                transfer_id: &transfer_id,
+                direction: "receive",
+                peer_id: &peer_id,
+                terminal_name: &terminal_name,
                 state: TransferState::Failed,
                 files: recv_files_snapshot(&files, &transferred),
                 total_bytes,
                 transferred_bytes: total_bytes_recv(&files, &transferred),
-                bytes_per_sec: 0.0,
                 saved_paths: None,
-                error: Some(TransferError {
-                    code: err_code.clone(),
-                    params: None,
-                }),
+                error: Some(err_code.clone()),
             },
         );
         notify_app(&app, NotifyLevel::Warning, &err_code);
-        emit_idle(&app, "receive");
         return Ok(());
     }
 
-    // done：清 sidecar，通知 + 快照
+    // done：清 sidecar，通知 + 快照（停留展示，含「打开所在位置」）
     let _ = remove_sidecar(&inbox_dir, &transfer_id);
-    emit_transfer(
+    emit_terminal(
         &app,
-        &LanFileTransfer {
-            transfer_id: Some(transfer_id.clone()),
-            direction: "receive".into(),
-            peer_id: Some(peer_id.clone()),
-            terminal_name: Some(terminal_name.clone()),
+        TerminalSnapshot {
+            transfer_id: &transfer_id,
+            direction: "receive",
+            peer_id: &peer_id,
+            terminal_name: &terminal_name,
             state: TransferState::Done,
             files: recv_files_snapshot(&files, &transferred),
             total_bytes,
             transferred_bytes: total_bytes,
-            bytes_per_sec: 0.0,
             saved_paths: Some(saved_paths.clone()),
             error: None,
         },
     );
     notify_app(&app, NotifyLevel::Success, "lan_file.done");
-    emit_idle(&app, "receive");
     Ok(())
 }
 
@@ -1814,19 +2576,113 @@ fn recv_progress_snapshot(
     bps: f64,
     error: Option<TransferError>,
 ) -> LanFileTransfer {
+    let mut snap = recv_state_snapshot(
+        transfer_id,
+        peer_id,
+        terminal_name,
+        files,
+        transferred,
+        total,
+        TransferState::Transferring,
+        error,
+    );
+    snap.bytes_per_sec = bps;
+    snap
+}
+
+/// 接收侧任意状态快照（transferring / resuming）。
+#[allow(clippy::too_many_arguments)]
+fn recv_state_snapshot(
+    transfer_id: &str,
+    peer_id: &str,
+    terminal_name: &str,
+    files: &[OfferFile],
+    transferred: &[u64],
+    total: u64,
+    state: TransferState,
+    error: Option<TransferError>,
+) -> LanFileTransfer {
     LanFileTransfer {
         transfer_id: Some(transfer_id.to_string()),
         direction: "receive".into(),
         peer_id: Some(peer_id.to_string()),
         terminal_name: Some(terminal_name.to_string()),
-        state: TransferState::Transferring,
+        state,
         files: recv_files_snapshot(files, transferred),
         total_bytes: total,
         transferred_bytes: total_bytes_recv(files, transferred).min(total),
-        bytes_per_sec: bps,
+        bytes_per_sec: 0.0,
         saved_paths: None,
         error,
     }
+}
+
+/// 续传窗口到期检查（契约 5.5「超窗无重连 → 删除 sidecar 与 .tmp，
+/// 任务 failed(transfer_failed) + notify warning」）。
+///
+/// 独立线程 + sleep 实现（无帧级硬超时要求，窗口固定 120s）：
+/// 到期时若该 transferId 既无 sidecar 也不再占用会话槽 → 视为超窗清理；
+/// 对端已在窗口内重连（sidecar 仍存在但会话重新占用）则留给进行中的任务处理。
+fn spawn_resume_expiry(app: AppHandle, inbox_dir: PathBuf, transfer_id: String) {
+    std::thread::Builder::new()
+        .name("lan-file-resume-expiry".into())
+        .spawn(move || {
+            std::thread::sleep(RESUME_WINDOW);
+            let still_active = shared()
+                .map(|g| {
+                    let g = g.lock().unwrap();
+                    g.active_transfer
+                        .as_ref()
+                        .map(|t| t.transfer_id == transfer_id)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if still_active {
+                return; // 窗口内已重连续传
+            }
+            let meta = match load_sidecar(&inbox_dir, &transfer_id) {
+                Ok(Some(m)) => m,
+                Ok(None) => return, // 已完成 / 已取消清理
+                Err(_) => return,
+            };
+            if meta.is_cancelled() {
+                // 墓碑：保留至自然过期即可（下次启动清理），不重复通知
+                return;
+            }
+            for f in &meta.files {
+                remove_tmp_file(&inbox_dir, &f.tmp_name);
+            }
+            let _ = remove_sidecar(&inbox_dir, &transfer_id);
+            let files: Vec<TransferFileInfo> = meta
+                .files
+                .iter()
+                .map(|f| TransferFileInfo {
+                    name: sanitize_filename(&f.name),
+                    size: 0,
+                    transferred_bytes: f.received_bytes,
+                    status: FileStatus::Transferring,
+                })
+                .collect();
+            let transferred: u64 = meta.files.iter().map(|f| f.received_bytes).sum();
+            emit_terminal(
+                &app,
+                TerminalSnapshot {
+                    transfer_id: &transfer_id,
+                    direction: "receive",
+                    peer_id: &meta.peer_id,
+                    terminal_name: &peer_terminal(&meta.peer_id),
+                    state: TransferState::Failed,
+                    files,
+                    total_bytes: transferred,
+                    transferred_bytes: transferred,
+                    saved_paths: None,
+                    error: Some(err::TRANSFER_FAILED.into()),
+                },
+            );
+            notify_app(&app, NotifyLevel::Warning, err::TRANSFER_FAILED);
+            log::info!("lan_file: resume window expired for {transfer_id}, cleaned up");
+        })
+        .ok();
 }
 
 /// 对端终端名（公告快照；无公告时用 peerId 短号）。
@@ -1875,29 +2731,83 @@ pub fn peer_addr(peer_id: &str) -> Option<String> {
     peer_ips().lock().unwrap().get(peer_id).cloned()
 }
 
+/// 解析对端 dial 地址（学习到的 IP + 当前公告端口）。
+///
+/// 续传重连时**必须**重新解析：接收方进程重启后动态端口会变（契约 5.2）。
+fn resolve_peer_addr(peer_id: &str) -> Option<String> {
+    let ip = peer_addr(peer_id)?;
+    let port = {
+        let shared = shared()?;
+        let g = shared.lock().unwrap();
+        find_announce(&g.announces, peer_id).map(|a| a.tcp_port)?
+    };
+    Some(format!("{ip}:{port}"))
+}
+
+// ---------------------------------------------------------------------------
+// 剪贴板主题新鲜观察表（移动端图片通道免人工信任的第二层证据，契约 5.9）
+// ---------------------------------------------------------------------------
+
+/// peerId → 最近一次在剪贴板主题上出现的时刻（unix 毫秒）。
+static CLIPBOARD_SEEN: OnceLock<Mutex<std::collections::HashMap<String, u64>>> = OnceLock::new();
+
+fn clipboard_seen() -> &'static Mutex<std::collections::HashMap<String, u64>> {
+    CLIPBOARD_SEEN.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// 记录「该 peerId 刚在剪贴板主题上出现过」（lan-sync 收到信封时调用）。
+pub fn note_clipboard_peer(peer_id: &str) {
+    let mut map = clipboard_seen().lock().unwrap();
+    map.insert(peer_id.to_string(), now_ms());
+    // 容量卫生：长期运行只留新鲜项（5 分钟窗口外的记录无意义）
+    let cutoff = now_ms().saturating_sub(svc::CLIPBOARD_FRESH_WINDOW.as_millis() as u64);
+    map.retain(|_, seen| *seen >= cutoff);
+}
+
+/// 该 peerId 是否仍在剪贴板新鲜窗口内（契约 5.9：5 分钟）。
+pub fn clipboard_peer_fresh(peer_id: &str) -> bool {
+    let map = clipboard_seen().lock().unwrap();
+    map.get(peer_id)
+        .map(|seen| svc::clipboard_peer_fresh(*seen, now_ms()))
+        .unwrap_or(false)
+}
+
 // ---------------------------------------------------------------------------
 // 自动图片通道（契约 5.7）
 // ---------------------------------------------------------------------------
 
-/// capture 钩子入口：新图片条目 → 门槛过滤 → 对每个在线 caps(img) 终端入队。
+/// 图片自动通道发送计划（发送侧门槛全部通过时的产物）。
 ///
-/// 发送侧先卡 10MiB + 白名单（复审修订 D①：不排队注定被拒的传输）；
-/// 任何失败静默（无事件、无错误 UI，仅日志）。
-pub fn queue_image_offers(app: &AppHandle, entry: &serde_json::Value) {
-    // 前置开关：本功能关闭 → 不发（信封元数据广播照常，归 lan_sync）
+/// 契约 5.7-1：信封必须先带上 `imageMeta.hash`/`xfer: true` 再广播，否则接收侧
+/// 收件箱条目没有关联键、字节到了也点不亮（历史 bug：hash 永不回填）。
+#[derive(Debug, Clone)]
+pub struct ImageXferPlan {
+    pub path: PathBuf,
+    pub name: String,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub size: u64,
+    /// 图片字节 SHA-256 hex（信封 hash 与 ImageOffer hash 共用同一值）。
+    pub hash: String,
+    /// 目标终端（在线且 caps 含 img）。
+    pub targets: Vec<Announce>,
+}
+
+/// capture 钩子入口（发送侧门槛判定，契约 5.7-5/6）：返回计划表示「信封要带 hash/xfer
+/// 且字节将经通道送达」；返回 None = 本次不走通道（信封不带 hash/xfer，收件箱维持占位）。
+///
+/// 门槛：本功能开 + lan-sync 广播开 + 白名单扩展名 + ≤10MiB + 可读可哈希 + 至少一个
+/// 在线 caps(img) 终端。任何失败静默（无事件、无错误 UI，仅日志）。
+pub fn image_xfer_plan(entry: &serde_json::Value) -> Option<ImageXferPlan> {
     if !lan_file_enabled() {
-        return;
+        return None;
     }
     // lan-sync 广播开关关闭 → 不发（契约 5.7-5）
     if !hooks::lan_sync_broadcast_enabled().unwrap_or(false) {
-        return;
+        return None;
     }
-    let Some(image) = entry.get("image") else {
-        return;
-    };
-    let Some(path) = image.get("path").and_then(|v| v.as_str()) else {
-        return;
-    };
+    let image = entry.get("image")?;
+    let path = image.get("path").and_then(|v| v.as_str())?;
     let size = image.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
     let width = image
         .get("width")
@@ -1913,25 +2823,22 @@ pub fn queue_image_offers(app: &AppHandle, entry: &serde_json::Value) {
         .unwrap_or_else(|| "image".into());
     if !is_image_ext(&name) {
         log::debug!("lan_file: image channel skip (ext not whitelisted): {name}");
-        return;
+        return None;
     }
     if size > 10 * 1024 * 1024 {
         log::info!("lan_file: image channel skip (>10MiB): {name} {size}B");
-        return;
+        return None;
     }
-    // hash：直接读文件算 SHA-256（发送侧关联键）
+    // hash：读文件算 SHA-256（发送侧关联键）
     let hash = match super::store::file_sha256_hex(Path::new(path)) {
         Ok(h) => h,
         Err(e) => {
             log::debug!("lan_file: image channel skip (unreadable): {e}");
-            return;
+            return None;
         }
     };
-
-    // 回填 imageMeta.hash/xfer 到广播信封由 lan_sync 在构造时查询（见 lan_sync::state）。
-    // 此处：对每个在线 caps(img) 终端入队 ImageOffer
     let targets: Vec<Announce> = {
-        let Some(shared) = shared() else { return };
+        let shared = shared()?;
         let g = shared.lock().unwrap();
         g.announces
             .iter()
@@ -1941,19 +2848,34 @@ pub fn queue_image_offers(app: &AppHandle, entry: &serde_json::Value) {
     };
     if targets.is_empty() {
         log::debug!("lan_file: image channel no online img-capable peers");
-        return;
+        return None;
     }
+    Some(ImageXferPlan {
+        path: PathBuf::from(path),
+        name,
+        width,
+        height,
+        size,
+        hash,
+        targets,
+    })
+}
+
+/// 按计划入队（契约 5.7-6：对每个在线 caps(img) 终端各入队一次，串行小队列）。
+///
+/// 调用时机：lan-sync 已把 `hash`/`xfer` 写入信封并完成广播之后。
+pub fn queue_image_offers(app: &AppHandle, plan: ImageXferPlan) {
     let Some(shared) = shared() else { return };
     let mut g = shared.lock().unwrap();
-    for target in targets {
+    for target in &plan.targets {
         let job = ImageOfferJob {
             transfer_id: uuid::Uuid::new_v4().to_string(),
-            path: PathBuf::from(path),
-            name: name.clone(),
-            width,
-            height,
-            size,
-            hash: hash.clone(),
+            path: plan.path.clone(),
+            name: plan.name.clone(),
+            width: plan.width,
+            height: plan.height,
+            size: plan.size,
+            hash: plan.hash.clone(),
             target: target.clone(),
         };
         g.image_queue.push_back(job);
@@ -2144,15 +3066,19 @@ async fn receive_image(
     let trusted = shared()
         .map(|g| g.lock().unwrap().settings.is_trusted(&peer_id))
         .unwrap_or(false);
+    // 来源门控（契约 5.7-2 桌面 / 5.9 移动端）：桌面认信任表；移动端无信任 UI，
+    // 改由「VLF 握手已认证 peerId（multihash(公钥)==peerId）」+「5 分钟剪贴板新鲜观察」放行。
+    let source_ok =
+        svc::image_source_admissible(trusted, clipboard_peer_fresh(&peer_id), cfg!(mobile));
     let admissible = size <= 10 * 1024 * 1024 && is_image_ext(&name);
-    if !enabled || !sync_receive || !trusted || !admissible {
-        let code = if !trusted {
+    if !enabled || !sync_receive || !source_ok || !admissible {
+        let code = if !source_ok {
             "lan_file.not_trusted"
         } else {
             err::NOT_ENABLED
         };
         log::debug!(
-            "lan_file: image from {peer_id} rejected silently (enabled={enabled} sync_recv={sync_receive} trusted={trusted} admissible={admissible})"
+            "lan_file: image from {peer_id} rejected silently (enabled={enabled} sync_recv={sync_receive} source_ok={source_ok} trusted={trusted} admissible={admissible})"
         );
         reject_session(&mut session, code).await;
         return Ok(());

@@ -24,6 +24,8 @@ pub mod quick_paste;
 pub mod lan_sync;
 
 /// 局域网文件共享（0.3.0；契约 `docs/api/lan-file.md`）。
-/// 交互传输与提议面板为桌面专属；自动图片通道两平台皆参与（接收端）。
-#[cfg(desktop)]
+///
+/// 两平台都编译并初始化：桌面 = 交互传输 + 提议面板 + 自动图片通道（命令面注册）；
+/// 移动端 = **仅自动图片通道接收端**（契约 5.9：公告 `caps:["img"]` + 动态端口监听 +
+/// ImageOffer 接收/落盘；7 个交互命令不注册，见 lib.rs 的 `build_invoke_handler` 平台拆分）。
 pub mod lan_file;

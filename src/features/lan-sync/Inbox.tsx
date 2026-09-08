@@ -9,6 +9,7 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { appDataDir, join } from "@tauri-apps/api/path";
 import { createSignal, createResource, For, onCleanup, onMount, Show } from "solid-js";
 import { getErrorCode } from "../../api/clipboard-history";
 import {
@@ -66,12 +67,44 @@ const IMAGE_EXTS_FRONT = ["png", "jpg", "jpeg", "gif", "webp", "bmp"] as const;
 /** 探测已点亮图片（懒执行 resource；miss 缓存避免重复请求）。 */
 const litProbeCache = new Map<string, string | null>();
 
+/**
+ * 图片落盘目录的**绝对路径**（asset 协议 scope 只认绝对路径）。
+ *
+ * 真机实测：此前传相对路径 `lan-inbox-images/<hash>.<ext>` →
+ * 后端报 `asset protocol not configured to allow the path`，图片永远点不亮。
+ */
+let litBaseDirPromise: Promise<string> | null = null;
+function litBaseDir(): Promise<string> {
+  if (!litBaseDirPromise) {
+    litBaseDirPromise = appDataDir();
+  }
+  return litBaseDirPromise;
+}
+
+/**
+ * 图片到达纪元：字节经自动通道落盘后（后端 emit reason=`image-arrived`）自增，
+ * 使已渲染条目的探测重新执行（否则首次 miss 会永久缓存，条目永远停在占位）。
+ */
+const [litEpoch, setLitEpoch] = createSignal(0);
+
+/** 失效探测缓存并触发重探测（图片字节刚到达时调用）。 */
+function invalidateLitCache() {
+  litProbeCache.clear();
+  setLitEpoch((n) => n + 1);
+}
+
 function probeLitImage(hash: string): Promise<string | null> {
   const cached = litProbeCache.get(hash);
   if (cached !== undefined) return Promise.resolve(cached);
   return (async () => {
+    let base: string;
+    try {
+      base = await litBaseDir();
+    } catch {
+      return null; // 取不到应用数据目录 → 维持占位（静默）
+    }
     for (const ext of IMAGE_EXTS_FRONT) {
-      const url = convertFileSrc(`lan-inbox-images/${hash}.${ext}`);
+      const url = convertFileSrc(await join(base, "lan-inbox-images", `${hash}.${ext}`));
       try {
         const ok = await new Promise<boolean>((resolve) => {
           const img = new Image();
@@ -96,8 +129,9 @@ function probeLitImage(hash: string): Promise<string | null> {
 /** 图片条目缩略图（点亮 → 真实图；未点亮 → 无渲染，占位文本由 entryPreview 负责）。 */
 function LitImage(props: { entry: LanInboxEntry }) {
   const [lit] = createResource(
-    () => props.entry.imageMeta?.hash,
-    (hash) => (hash ? probeLitImage(hash) : Promise.resolve(null)),
+    // 源 = hash + 纪元：字节到达（纪元自增）后重新探测
+    () => [props.entry.imageMeta?.hash, litEpoch()] as const,
+    ([hash]) => (hash ? probeLitImage(hash) : Promise.resolve(null)),
   );
   return (
     <Show when={lit()}>
@@ -172,10 +206,16 @@ export function Inbox(props: InboxProps) {
       .then((s) => setReceiveEnabled(s.receiveEnabled))
       .catch(() => {});
     void refresh(true);
-    // 事件驱动刷新：新消息 / 删除 / 清空
-    const unlisten = listen<{ reason: string; id?: string }>(LAN_INBOX_UPDATED_EVENT, () => {
-      void refresh(false);
-    });
+    // 事件驱动刷新：新消息 / 删除 / 清空；图片字节到达（image-arrived）另需失效探测缓存
+    const unlisten = listen<{ reason: string; id?: string }>(
+      LAN_INBOX_UPDATED_EVENT,
+      (e) => {
+        if (e.payload?.reason === "image-arrived") {
+          invalidateLitCache();
+        }
+        void refresh(false);
+      },
+    );
     onCleanup(() => {
       void unlisten.then((fn) => fn());
     });

@@ -479,11 +479,13 @@ export function Settings() {
               </div>
             </div>
           </div>
-          {/* 已信任终端管理 */}
+          {/* 已信任终端管理（空态提示仅在没有已信任终端时显示） */}
           <div class="settings-row">
             <div>
               <div class="settings-label">{t("lanFile.trustedPeers")}</div>
-              <div class="settings-desc">{t("lanFile.trustedEmpty")}</div>
+              <Show when={trustedPeers().length === 0}>
+                <div class="settings-desc">{t("lanFile.trustedEmpty")}</div>
+              </Show>
             </div>
           </div>
           <Show when={trustedPeers().length > 0}>
@@ -494,6 +496,9 @@ export function Settings() {
                     <span class="file-trusted-name">{p.terminalName}</span>
                     <span class="file-trusted-id" title={p.peerId}>
                       {p.peerId.slice(0, 10)}…
+                    </span>
+                    <span class="file-trusted-time">
+                      {t("lanFile.trustedAt", { time: p.trustedAt.slice(0, 16).replace("T", " ") })}
                     </span>
                     <button
                       type="button"

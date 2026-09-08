@@ -1558,6 +1558,39 @@ button:active {
   white-space: nowrap;
 }
 
+/* 传输卡操作行（取消 / 打开所在位置 / 重试，契约 F4/F5） */
+.transfer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.transfer-dismiss {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-secondary);
+  display: grid;
+  place-items: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.transfer-dismiss:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* 提议面板：TOFU 参考信息（该终端上次在线距今） */
+.offer-known {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+}
+
 /* ---- 设置页：信任管理 + 收件箱图片缩略图 ---- */
 .file-trusted-list {
   list-style: none;
@@ -1582,6 +1615,12 @@ button:active {
   color: var(--text-tertiary);
   font-size: 12px;
   flex: 1;
+}
+
+.file-trusted-time {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .file-trusted-remove {

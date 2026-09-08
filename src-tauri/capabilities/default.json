@@ -8,6 +8,11 @@
     "core:default",
     "opener:default",
     "clipboard-x:default",
-    "dialog:default"
+    "dialog:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "comment": "「文件」页一键打开接收文件夹（scope 只放行该目录）",
+      "allow": [{ "path": "$APPDATA/lanfile" }]
+    }
   ]
 }

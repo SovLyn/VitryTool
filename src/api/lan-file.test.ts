@@ -2,17 +2,29 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
+  checkLanFilePaths,
   formatBytes,
   formatSpeed,
   getLanFilePeers,
   getLanFileStatus,
+  openReceiveFolder,
   sendLanFile,
 } from "./lan-file";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openPath: vi.fn(async () => undefined),
+  revealItemInDir: vi.fn(async () => undefined),
+}));
+vi.mock("@tauri-apps/api/path", () => ({
+  appDataDir: vi.fn(async () => "C:\\Users\\x\\AppData\\Roaming\\com.sovly.vitrytool"),
+  join: vi.fn(async (...parts: string[]) => parts.join("\\")),
+}));
 
 const mockedInvoke = vi.mocked(invoke);
+const mockedOpenPath = vi.mocked(openPath);
 
 describe("lan-file api 封装", () => {
   beforeEach(() => {
@@ -58,6 +70,25 @@ describe("lan-file api 封装", () => {
       filePaths: ["C:\\a.txt", "C:\\b.bin"],
     });
     expect(r.transferId).toBe("t-1");
+  });
+
+  it("checkLanFilePaths 传递路径列表并返回预检结果", async () => {
+    mockedInvoke.mockResolvedValueOnce({
+      paths: [{ path: "C:\\a.txt", name: "a.txt", size: 5, isDir: false, readable: true }],
+    });
+    const r = await checkLanFilePaths(["C:\\a.txt"]);
+    expect(mockedInvoke).toHaveBeenCalledWith("check_lan_file_paths", {
+      filePaths: ["C:\\a.txt"],
+    });
+    expect(r.paths[0].readable).toBe(true);
+  });
+
+  it("openReceiveFolder 打开接收目录（AppData/lanfile）", async () => {
+    mockedOpenPath.mockClear();
+    await openReceiveFolder();
+    expect(mockedOpenPath).toHaveBeenCalledWith(
+      "C:\\Users\\x\\AppData\\Roaming\\com.sovly.vitrytool\\lanfile",
+    );
   });
 });
 

@@ -8,10 +8,12 @@ import { ClipboardHistory } from "./features/clipboard-history/ClipboardHistory"
 import { startClipboardCapture } from "./features/clipboard-history/listener";
 import { FilePage } from "./features/lan-file/FilePage";
 import { OfferPanel } from "./features/lan-file/OfferPanel";
+import { startTransferWatch } from "./features/lan-file/transfer-store";
 import { Inbox } from "./features/lan-sync/Inbox";
 import { Settings } from "./features/settings/Settings";
 import { useI18n } from "./i18n";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 type View = "history" | "files" | "inbox" | "settings";
 
@@ -43,6 +45,8 @@ function App() {
   const [unread, setUnread] = createSignal(0);
   /** 平台信息（null = 未加载）：移动端隔离桌面功能（契约 mobile 5.1）。 */
   const [isMobile, setIsMobile] = createSignal<boolean | null>(null);
+  /** 全局拖入的文件路径（lan-file F1：任意页面拖入 → 跳「文件」页并预填）。 */
+  const [droppedPaths, setDroppedPaths] = createSignal<string[]>([]);
 
   // 平台识别：移动端不启动剪贴板监听、不下发托盘文案（无托盘/监听，契约 mobile 5.1）
   onMount(() => {
@@ -77,8 +81,26 @@ function App() {
         setUnread((n) => n + 1);
       }
     });
+    // lan-file F1：全局原生拖放（窗口级 onDragDropEvent 携带真实绝对路径）——
+    // 任意页面拖入文件即跳「文件」页并预填待发列表（桌面专属）
+    // 传输快照监听也挂在应用级：切走页面期间的事件不丢失（契约 5.3）
+    startTransferWatch();
+    let unlistenDrop: Promise<() => void> | (() => void) | undefined;
+    try {
+      unlistenDrop = getCurrentWebview().onDragDropEvent((event) => {
+        if (event.payload.type !== "drop") return;
+        const paths = event.payload.paths ?? [];
+        if (paths.length === 0) return;
+        setDroppedPaths(paths);
+        setView("files");
+      });
+    } catch (err) {
+      // 非 Tauri 宿主（测试 / 浏览器预览）无 webview 能力：拖放预填不可用，其余功能照常
+      console.warn("lan-file: global drop listener unavailable:", err);
+    }
     onCleanup(() => {
       void unlisten.then((fn) => fn());
+      if (unlistenDrop) void Promise.resolve(unlistenDrop).then((fn) => fn());
     });
   });
 
@@ -160,7 +182,10 @@ function App() {
             {view() === "history" ? (
               <ClipboardHistory />
             ) : view() === "files" ? (
-              <FilePage />
+              <FilePage
+                droppedPaths={droppedPaths()}
+                onDroppedConsumed={() => setDroppedPaths([])}
+              />
             ) : view() === "inbox" ? (
               <Inbox onSeen={() => setUnread(0)} />
             ) : (

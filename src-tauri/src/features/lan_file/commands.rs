@@ -59,6 +59,10 @@ pub async fn send_lan_file(
     if file_paths.is_empty() {
         return Err(ApiError::new(ERR_INVALID, "empty file list"));
     }
+    // 契约 5.6：路径校验**必须在命令层**完成。放进任务线程里失败会完全静默
+    // （命令已返回 transferId，前端既无卡片也无提示——真机实测：拖入文件夹点发送毫无反应）。
+    super::service::validate_send_paths(&file_paths, &super::service::probe_regular_file)
+        .map_err(|code| ApiError::new(code, "invalid send paths"))?;
     // 忙检查（单会话槽前置判断，真实占用在任务内完成）
     {
         let g = shared.lock().unwrap();
@@ -103,6 +107,8 @@ pub async fn send_lan_file(
                 Ok(rt) => rt,
                 Err(e) => {
                     log::error!("lan_file: send task runtime failed: {e}");
+                    // 任务未能启动：回空闲（避免前端停留一张不会更新的卡片）
+                    state::emit_idle(&app2, "send");
                     return;
                 }
             };
@@ -146,11 +152,8 @@ pub async fn reject_lan_file(_app: AppHandle, transfer_id: String) -> Result<(),
 
 /// 显式取消（契约 2：cancelLanFileTransfer = 永久终止：墓碑 + 删 tmp + 通知对端）。
 #[tauri::command]
-pub async fn cancel_lan_file_transfer(
-    _app: AppHandle,
-    transfer_id: String,
-) -> Result<(), ApiError> {
-    state::cancel_transfer(&transfer_id);
+pub async fn cancel_lan_file_transfer(app: AppHandle, transfer_id: String) -> Result<(), ApiError> {
+    state::cancel_transfer(&app, &transfer_id);
     log::info!("lan_file: transfer {transfer_id} cancelled by user");
     Ok(())
 }
@@ -177,12 +180,21 @@ pub async fn get_lan_file_trusted_peers() -> Result<Vec<super::store::TrustedPee
     Ok(g.settings.trusted_peers.clone())
 }
 
+/// 路径预检（契约 2/5.6 增量）：拖入/选择后先问后端「能不能传」——
+/// 目录 v1 不支持，前端据此忽略并提示（此前拖入文件夹点发送毫无反应）。
+#[tauri::command]
+pub async fn check_lan_file_paths(
+    file_paths: Vec<String>,
+) -> Result<super::service::LanFilePathsResp, ApiError> {
+    Ok(super::service::LanFilePathsResp {
+        paths: file_paths
+            .iter()
+            .map(|p| super::service::path_info(p))
+            .collect(),
+    })
+}
+
 /// 供 lib.rs 的 lan_sync 消费者转发公告主题消息。
 pub fn forward_announce_from_node(source: &str, data: &[u8]) {
     state::forward_announce(source, data);
-}
-
-/// 供 capture 钩子调用（图片通道排队）。
-pub fn on_new_entry(app: &AppHandle, entry: &serde_json::Value) {
-    state::queue_image_offers(app, entry);
 }

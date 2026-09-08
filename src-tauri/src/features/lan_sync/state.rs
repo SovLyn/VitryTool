@@ -262,6 +262,9 @@ fn handle_message(app: &AppHandle, source: &str, data: &[u8]) {
         log::debug!("lan_sync: own message ignored");
         return;
     }
+    // 剪贴板主题新鲜观察（契约 lan-file 5.9）：移动端图片通道免人工信任的第二层证据——
+    // 该 peerId 在 5 分钟内于剪贴板主题活跃过（与接收开关无关，看到即记）。
+    crate::features::lan_file::state::note_clipboard_peer(&env.peer_id);
     if !receive_enabled {
         log::debug!("lan_sync: receive disabled, ignored");
         return;
@@ -316,7 +319,7 @@ fn broadcast_captured_entry(app: &AppHandle, entry: &serde_json::Value) {
         return;
     }
 
-    let Some(env) =
+    let Some(mut env) =
         super::service::envelope_from_entry_json(entry, &self_peer_id, &terminal_name, now_ms())
     else {
         log::debug!("lan_sync: entry has no broadcastable content");
@@ -325,6 +328,14 @@ fn broadcast_captured_entry(app: &AppHandle, entry: &serde_json::Value) {
     let Some(fingerprint) = envelope_fingerprint(&env) else {
         return;
     };
+
+    // 0.3.0 自动图片通道（契约 lan-file 5.7-1）：发送侧门槛通过 → 信封**先**带
+    // `imageMeta.hash`/`xfer: true` 再广播（接收侧收件箱靠 hash 点亮真实图片）。
+    let image_plan = crate::features::lan_file::state::image_xfer_plan(entry);
+    if let (Some(plan), Some(meta)) = (image_plan.as_ref(), env.image_meta.as_mut()) {
+        meta.hash = Some(plan.hash.clone());
+        meta.xfer = Some(true);
+    }
 
     // 防环：近期接收过 → 跳过
     {
@@ -352,9 +363,9 @@ fn broadcast_captured_entry(app: &AppHandle, entry: &serde_json::Value) {
         node.publish(super::service::TOPIC, bytes);
     }
 
-    // 0.3.0 自动图片通道（契约 lan-file 5.7）：新图片条目 → ImageOffer 排队
-    // （发送侧门槛 10MiB + 白名单在 lan_file 侧判断；开关矩阵亦在彼处校验）
-    if env.image_meta.is_some() {
-        crate::features::lan_file::state::queue_image_offers(app, entry);
+    // 0.3.0 自动图片通道（契约 lan-file 5.7-6）：信封已带 hash/xfer 广播完成 →
+    // 对每个在线 caps(img) 终端入队 ImageOffer（发送侧门槛已在 image_xfer_plan 判定）
+    if let Some(plan) = image_plan {
+        crate::features::lan_file::state::queue_image_offers(app, plan);
     }
 }
