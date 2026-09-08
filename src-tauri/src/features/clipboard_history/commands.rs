@@ -4,10 +4,12 @@
 //! 后端无自有时钟（见 `docs/adr/0001-clipboard-capture-via-webview-events.md`）。
 
 use super::service::{
-    dedup_promote_and_evict, evict_over_limit, orphan_files, set_favorite, sort_for_display,
-    CleanupResp, ClipboardEntry, ClipboardFiles, ClipboardImage, InsertOutcome, SetMaxResp,
-    MAX_ENTRIES_LIMIT,
+    dedup_promote_and_evict, evict_over_limit, set_favorite, sort_for_display, ClipboardEntry,
+    SetMaxResp, MAX_ENTRIES_LIMIT,
 };
+// 仅桌面捕捉 / 孤儿清理用到（移动端不读图片与文件、无 cleanupOrphanImages 命令，契约 mobile 5.1）
+#[cfg(desktop)]
+use super::service::{orphan_files, CleanupResp, ClipboardFiles, ClipboardImage, InsertOutcome};
 use super::store::{HistoryStore, StoreBackend};
 use crate::core::error::ApiError;
 use std::path::{Path, PathBuf};
@@ -36,6 +38,8 @@ const ERR_WRITE_UNSUPPORTED: &str = "clipboard.write_unsupported";
 /// 仅保护同步的 store 段（无 await），读剪贴板 IO 在锁外进行。
 static CAPTURE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// 桌面专属：捕捉失败错误（移动端不监听剪贴板，契约 mobile 5.1）。
+#[cfg(desktop)]
 fn capture_err(err: impl std::fmt::Display) -> ApiError {
     let code = ERR_CAPTURE.to_string();
     log::error!("{code}: {err}");
@@ -311,7 +315,7 @@ pub async fn write_clipboard_entry(app: AppHandle, id: String) -> Result<(), Api
 
     #[cfg(mobile)]
     {
-        write_entry_mobile(&app, &entry).await
+        write_entry_mobile(&app, entry).await
     }
 }
 

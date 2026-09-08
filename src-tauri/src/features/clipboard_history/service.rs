@@ -3,7 +3,10 @@
 //! 领域术语与规则见 `dev/CONTEXT.md`；行为契约见 `docs/api/clipboard-history.md` 第 5 节。
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+// `Path` 仅孤儿图片清理（桌面专属，见 orphan_files）用到
+#[cfg(desktop)]
+use std::path::Path;
 
 /// 条目上限（允许的最大值）。
 pub const MAX_ENTRIES_LIMIT: usize = 1024;
@@ -40,6 +43,9 @@ pub struct ClipboardEntry {
 
 impl ClipboardEntry {
     /// 是否不含任何内容字段（捕捉时无可用内容则静默忽略，见契约 5.2-2）。
+    ///
+    /// 仅桌面捕捉路径调用（移动端不监听剪贴板，契约 mobile 5.1）。
+    #[cfg(desktop)]
     pub fn is_empty(&self) -> bool {
         self.text.is_none()
             && self.html.is_none()
@@ -85,7 +91,8 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-/// `cleanupOrphanImages` 响应：删除的孤儿图片数。
+/// `cleanupOrphanImages` 响应：删除的孤儿图片数（桌面专属命令，契约 mobile 5.1）。
+#[cfg(desktop)]
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupResp {
@@ -212,6 +219,9 @@ pub fn set_favorite(entries: &mut [ClipboardEntry], id: &str, favorited: bool, n
 /// 路径比较基于 [`Path::components`]（在 Windows 上 `/` 与 `\` 均被识别为路径分隔符），
 /// 避免条目路径（插件用 `\` 拼接）与扫描目录（`PathBuf::join` 可能保留 `/`）
 /// 因分隔符表示不一致而被误判为孤儿——该问题曾导致全部图片被误删。
+///
+/// 桌面专属（移动端不落图片、无 `cleanupOrphanImages` 命令，契约 mobile 5.1）。
+#[cfg(desktop)]
 pub fn orphan_files(entries: &[ClipboardEntry], dir_files: &[PathBuf]) -> Vec<PathBuf> {
     let referenced: Vec<Vec<_>> = entries
         .iter()
