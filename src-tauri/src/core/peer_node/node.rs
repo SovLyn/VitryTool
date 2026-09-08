@@ -280,7 +280,7 @@ async fn async_main(config: NodeConfig, command_rx: Receiver<NodeCommand>) -> Re
                         send_back_addr.clone()
                     }
                 };
-                let addr_str = if addr.as_ref().len() > 0 {
+                let addr_str = if !addr.as_ref().is_empty() {
                     addr.to_string()
                 } else {
                     mdns_addrs

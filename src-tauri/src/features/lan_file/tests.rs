@@ -147,7 +147,7 @@ async fn session_handshake_binds_identity_both_ways() {
         )
     );
     assert!(i_peer.fingerprint.starts_with("SHA256:"));
-    assert!(r.is_initiator() == false);
+    assert!(!r.is_initiator());
     assert!(i.is_initiator());
 }
 

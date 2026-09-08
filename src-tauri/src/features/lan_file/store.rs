@@ -411,11 +411,11 @@ mod tests {
 
     #[test]
     fn dedup_filename_increments() {
-        let existing = vec!["a.txt", "a (1).txt"];
+        let existing = ["a.txt", "a (1).txt"];
         let taken = |n: &str| existing.contains(&n);
         assert_eq!(dedup_filename("b.txt", &taken), "b.txt");
         assert_eq!(dedup_filename("a.txt", &taken), "a (2).txt");
-        let existing2 = vec!["noext"];
+        let existing2 = ["noext"];
         let taken2 = |n: &str| existing2.contains(&n);
         assert_eq!(dedup_filename("noext", &taken2), "noext (1)");
     }
